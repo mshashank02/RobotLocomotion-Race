@@ -1,157 +1,39 @@
-# Track 2 Bonus Project Requirements: Go2 200 m Oval
+# Track 2 Requirements
 
-## 1. Project Goal
+Goal: run Go2 as far as possible around a 200 m oval track in MuJoCo.
 
-Your goal is to make Unitree Go2 run as far and as cleanly as possible around a
-200 m standard oval track in MuJoCo.
+## Routes
 
-This starter repo uses a hierarchical design:
+- Proposal-based final project.
+- Go2 oval-track tournament.
+- Both, for bonus.
 
-```text
-high-level planner:
-  track coordinates -> local command [vx, vy, yaw_rate]
-
-low-level locomotion policy:
-  proprioception + command -> 12 joint position target offsets
-```
-
-The low-level policy is the same Brax PPO checkpoint format used in HW1. The
-new part of this bonus project is the track-aware high-level control problem:
-using track coordinates and geometry to decide how the robot should move around
-the oval without leaving the lane.
-
-Track 2 can be used in three ways:
-
-- Proposal-based final project: continue from your final project proposal,
-  present in class, and submit a final report.
-- Go2 oval-track tournament: compete on this shared benchmark using the
-  evaluation pipeline in this repository.
-- Both: submit a proposal-based final project and a tournament entry for bonus
-  points.
-
-Read the release handout for the course-level choices, grading distribution,
-and tournament ranking rules:
+## Tournament Controller
 
 ```text
-docs/track2_assignment_handout.md
+5D track observation -> [vx, vy, yaw_rate] -> Go2 low-level policy
 ```
 
-## 2. What Is Provided
+Use the interface in `docs/controller_interface.md`. The low-level checkpoint
+should stay compatible with the HW1 Brax PPO format.
 
-You are given:
+## Allowed
 
-- HW1-style Go2 locomotion training code.
-- A 200 m oval track geometry module.
-- A weak starter high-level planner in `configs/starter_planner.json`.
-- `run_track_bonus.py`, which evaluates one low-level checkpoint plus one
-  high-level planner on the oval.
-- `train_highlevel_starter.py`, a small parameter-search scaffold.
-- `scripts/render_track_tournament.py`, which combines up to 10 independently
-  evaluated rollout files into one synchronized MuJoCo video.
-- A Colab notebook that installs dependencies, clones this repo, trains or
-  restores a checkpoint, runs evaluation, and renders a video.
-- A release handout explaining proposal final project, tournament, and combined
-  submission routes.
+- Reuse a HW1 checkpoint.
+- Retrain or modify the low-level Go2 policy.
+- Replace or train the high-level controller.
+- Add your own configs, scripts, planner modules, or report artifacts.
 
-The starter planner is intentionally conservative and is not expected to solve
-the full project by itself.
+## Not Allowed
 
-For the high-level optimization details, read:
+- Hard-code benchmark results.
+- Delete or rename required output fields.
+- Bypass the low-level policy with prewritten joint trajectories.
+- Use privileged low-level actor observations beyond normal `state`.
 
-```text
-docs/high_level_optimization_guide.md
-```
+## Commands
 
-For the fixed high-level input/output interface, read:
-
-```text
-docs/controller_interface.md
-```
-
-## 3. Required Student Work
-
-You must improve at least one of the following:
-
-- Low-level command tracking: improve the PPO locomotion policy so it can track
-  forward, lateral, and yaw-rate commands more robustly.
-- High-level planning: replace or tune the starter planner so it uses track
-  coordinates to keep the robot inside the oval lane.
-- Training curriculum: design a curriculum that makes the low-level and
-  high-level parts work together better.
-
-The final controller must run through the provided evaluation command and must
-output the same required artifacts.
-
-## 4. Allowed Approaches
-
-Allowed:
-
-- Reusing your HW1 low-level checkpoint.
-- Training a new low-level Brax PPO checkpoint from this repo.
-- Editing `go2_pg_env/joystick.py` and `configs/course_config.json`.
-- Replacing `track_bonus/planner.py` with your own high-level controller.
-- Training a high-level MLP, RL policy, residual controller, black-box searched
-  controller, or hand-designed baseline.
-- Using the compact track-coordinate features specified in
-  `docs/controller_interface.md`.
-- Adding new config files, scripts, or planner modules.
-
-Not allowed:
-
-- Changing benchmark metric names or deleting required output fields.
-- Hard-coding benchmark results instead of running the policy.
-- Submitting evaluator-only hacks that bypass the low-level policy.
-- Using privileged simulator information inside the low-level actor beyond the
-  normal `state` observation.
-- Submitting generated artifacts without code/configs that explain how they
-  were produced.
-
-## 5. Observation And Action Design
-
-The low-level actor should remain compatible with HW1:
-
-```text
-state =
-  local linear velocity
-  gyro
-  gravity vector
-  joint position error
-  joint velocity
-  last action
-  command [vx, vy, yaw_rate]
-```
-
-The high-level planner may use track-coordinate features such as:
-
-```text
-[
-  lap_fraction,
-  lateral_error_norm,
-  boundary_margin_norm,
-  heading_error_rad,
-  curvature_norm
-]
-```
-
-This compact vector is derived from the robot's current pose and the known
-track geometry. It is the recommended tournament-facing high-level input.
-
-The high-level output must be:
-
-```text
-[vx, vy, yaw_rate]
-```
-
-in the same command convention used by the low-level joystick policy.
-
-The evaluator rejects non-finite or wrong-shaped commands, but it does not clip
-or rescale command values. The high-level controller may use only the current
-robot's own compact track observation; it may not read other robots' states or
-future rollout information.
-
-## 6. Starter Commands
-
-Low-level training:
+Train:
 
 ```bash
 python train.py \
@@ -160,7 +42,7 @@ python train.py \
   --output-dir artifacts/low_level_train
 ```
 
-Track evaluation:
+Evaluate:
 
 ```bash
 python run_track_bonus.py \
@@ -169,161 +51,37 @@ python run_track_bonus.py \
   --output-dir artifacts/track_eval
 ```
 
-Quick no-render evaluation:
+## Ranking
 
-```bash
-python run_track_bonus.py \
-  --checkpoint-dir artifacts/low_level_train/best_checkpoint \
-  --planner-config configs/starter_planner.json \
-  --output-dir artifacts/track_eval_smoke \
-  --duration-seconds 5 \
-  --no-render
+- Completed laps rank before incomplete runs.
+- Completed laps rank by lower `finish_time`.
+- Incomplete runs rank by higher `valid_distance_m`.
+- Ties use failures, boundary margin, lateral error, slip, and energy.
+
+## Outputs And Metrics
+
+Outputs: `results.json`, `leaderboard.csv`, `race_rollouts.npz`, optional
+`race.mp4`.
+
+Main metrics: `lap_completion`, `valid_distance_m`, `finish_time`, `fall`,
+`boundary_violation`.
+
+## Submission
+
+```text
+best_checkpoint/
+planner_config.json or planner file
+submission.json
+track_eval/results.json
+optional track_eval/race.mp4
+short_report.pdf
 ```
 
-Optional high-level parameter search:
+Report briefly: low-level changes, high-level design, training/search method,
+final metrics, one failed idea, and real-robot localization assumptions.
 
-```bash
-python train_highlevel_starter.py \
-  --checkpoint-dir artifacts/low_level_train/best_checkpoint \
-  --output-dir artifacts/highlevel_train \
-  --iterations 8 \
-  --population 12
-```
+## Grading
 
-This script optimizes `scores.composite_score` from `run_track_bonus.py`. It is
-black-box search, not analytic gradient descent through MuJoCo.
-
-## 7. Evaluation Metrics
-
-The evaluator reports:
-
-- `lap_completion`: fraction of one 200 m lap completed.
-- `valid_distance_m`: distance traveled before the first fall or boundary
-  violation, computed as `200 * lap_completion`.
-- `finish_time`: time to complete one lap, or `null` if not completed.
-- `mean_progress_speed`: average speed along the centerline.
-- `rms_lateral_error`: RMS distance from the centerline.
-- `max_lateral_error`: maximum absolute distance from the centerline.
-- `min_boundary_margin_m`: closest distance to the lane boundary.
-- `fall`: whether the robot fell before finishing.
-- `boundary_violation`: whether the robot left the lane.
-- `energy_proxy`: mean actuator power proxy.
-- `foot_slip_proxy`: mean foot slip speed proxy.
-
-The score rewards lap completion, speed, line keeping, stability, and
-efficiency. Completing more of the lap is the most important objective.
-
-Official tournament ranking uses these rules:
-
-- Completed full laps rank ahead of incomplete runs.
-- Completed laps are ordered by lower `finish_time`.
-- Incomplete runs are ordered by higher `valid_distance_m`.
-- Ties are broken by fewer failures, larger boundary margin, lower lateral
-  error, lower foot slip, and lower energy proxy.
-
-## 8. Deliverables
-
-Submit a folder or zip containing:
-
-- `best_checkpoint/`
-- `planner_config.json` or your planner file
-- `submission.json`
-- `track_eval/results.json`
-- optional `track_eval/race.mp4`
-- `short_report.pdf`
-
-Your `submission.json` should include:
-
-```json
-{
-  "team_name": "your_team_name",
-  "track2_option": "tournament",
-  "checkpoint_dir": "best_checkpoint",
-  "planner": "planner_config.json",
-  "training_steps": 15000000,
-  "evaluation_command": "python run_track_bonus.py --checkpoint-dir best_checkpoint --planner-config planner_config.json --output-dir track_eval",
-  "notes": "Brief summary of your method"
-}
-```
-
-Use `"track2_option": "proposal_final_project"` if you are submitting only a
-proposal-based final project, and `"track2_option": "both"` if you are also
-entering the tournament.
-
-## 9. Short Report Requirements
-
-Your report should answer:
-
-1. What does your low-level policy observe and output?
-2. What did you change in the low-level training, reward, or command
-   curriculum?
-3. What track features does your high-level planner use?
-4. Is your high-level controller hand-designed, searched, supervised, or RL
-   trained?
-5. How does your controller avoid leaving the track?
-6. What are your final `lap_completion`, `valid_distance_m`, `finish_time`,
-   lateral error, fall, energy, and slip metrics?
-7. What failed idea did you try, and what did you learn?
-8. What extra localization would be needed for a real robot to use this track
-   coordinate controller?
-
-## 10. Suggested Development Path
-
-1. Run the notebook setup and inspect the starter files.
-2. Reuse a HW1 checkpoint or train the default low-level baseline.
-3. Run `run_track_bonus.py --no-render` for a short smoke test.
-4. Render one evaluation video and inspect where the robot fails.
-5. Improve yaw-rate and curved-command tracking in the low-level policy.
-6. Tune or replace the high-level planner.
-7. Repeat evaluation and compare metrics.
-8. Save final artifacts and write the report.
-
-## 11. Grading And Ranking
-
-Track 2 has a final-project-like grading distribution. Students can choose a
-proposal-based final project, the Go2 oval-track tournament, or both.
-
-Proposal-based final project suggested distribution:
-
-- 20% proposal alignment and problem framing.
-- 30% technical implementation.
-- 25% experiments, evaluation, and evidence.
-- 10% class presentation or demo.
-- 15% final report quality and reproducibility.
-
-Go2 tournament suggested distribution:
-
-- 45% official benchmark performance and leaderboard rank.
-- 20% technical method quality: low-level training, high-level controller,
-  curriculum, and design justification.
-- 15% evaluation analysis: videos, failure cases, ablations, and metric
-  interpretation.
-- 10% class presentation or demo.
-- 10% reproducibility: submitted configs, checkpoint, planner, results, and
-  report can be rerun.
-
-Teams that complete both routes are eligible for bonus. The exact bonus policy
-will be announced by the instructor.
-
-The bonus project is not graded only by fastest speed. A slower policy that
-stays upright and inside the track can be better than a brief sprint that falls
-or exits the lane.
-
-## 12. Reproducibility Expectations
-
-Your submission should be reproducible from the provided files. Include the
-config used for training and planner evaluation when it differs from the
-starter config. Do not rely on Colab temporary files that are not included in
-your submission.
-
-Recommended final verification:
-
-```bash
-python run_track_bonus.py \
-  --checkpoint-dir best_checkpoint \
-  --planner-config planner_config.json \
-  --output-dir track_eval
-```
-
-Then confirm that `track_eval/results.json` exists and contains all required
-metrics.
+Proposal projects use the final-project rubric. Tournament entries use
+leaderboard performance, method quality, analysis, presentation, and
+reproducibility. Doing both routes is eligible for bonus.

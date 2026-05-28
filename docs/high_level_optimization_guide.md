@@ -1,111 +1,18 @@
-# High-Level Planner Optimization Guide
+# High-Level Optimization Guide
 
-## Current Baseline
+The starter high-level planner is weak on purpose.
 
-The provided high-level planner is `StarterTrackPlanner` in
-`track_bonus/planner.py`.
-
-It is not learned. It is a small coordinate-feedback controller:
-
-```text
-5D track observation -> [vx, vy, yaw_rate]
-```
-
-It computes:
-
-- projection onto the 200 m oval centerline
-- normalized lateral error from the centerline
-- normalized boundary margin
-- heading error
-- normalized local curvature feedforward
-
-Then it outputs a conservative joystick command for the low-level policy.
-
-The JSON parameters in `configs/starter_planner.json` control the starter
-planner's speed, heading correction, and lateral correction.
-
-All high-level methods must keep the same runtime interface:
-
-```text
-5D track observation -> [vx_mps, vy_mps, yaw_rate_radps]
-```
-
-The 5D track observation is:
+## Interface
 
 ```text
 [lap_fraction, lateral_error_norm, boundary_margin_norm,
  heading_error_rad, curvature_norm]
+  -> [vx, vy, yaw_rate]
 ```
 
-The official evaluator checks command shape and finite values, but does not
-clip or rescale commands.
+The evaluator checks shape and finite values only. It does not clip commands.
 
-## Is The High-Level Baseline Trained?
-
-Only the optional script `train_highlevel_starter.py` performs optimization.
-It does **not** use gradient descent through MuJoCo. It uses black-box search:
-
-1. sample planner parameters near the current best config
-2. write a candidate `planner_config.json`
-3. run `run_track_bonus.py --no-render`
-4. read `results.json`
-5. use `scores.composite_score` as the objective
-6. keep the best candidate and sample around it again
-
-This is deliberately simple. It gives students a working optimization loop
-without giving away a solved planner.
-
-## Where Is The Optimization Signal?
-
-The optimization signal is the evaluation score:
-
-```text
-scores.composite_score
-```
-
-from `track_eval/results.json`.
-
-That score is built from:
-
-- lap completion
-- valid distance before fall or boundary violation
-- progress speed
-- line keeping
-- fall / boundary violation
-- energy proxy
-- foot slip proxy
-
-So the "gradient" in the starter repo is not an analytic gradient. It is a
-black-box reward signal: try parameters, run a rollout, compare scores, update
-the parameter distribution.
-
-## Why No Differentiable Gradient?
-
-The full system includes:
-
-- a restored Brax PPO low-level policy
-- MJX/MuJoCo physics
-- discontinuous events such as falls and boundary exits
-- video/rendering outputs
-- checkpoint restore code
-
-Backpropagating through this whole evaluation loop is not the intended starter
-baseline. For this project, black-box search and RL-style reward optimization
-are acceptable and much easier to reason about.
-
-## What Can Students Optimize?
-
-### 1. Starter JSON Parameters
-
-Easiest path:
-
-- increase `speed_mps`
-- increase `max_yaw_rate_radps`
-- tune `k_heading`
-- tune `k_lateral`
-- keep `max_lateral_speed_mps` within what the low-level policy can track
-
-Use:
+## Starter Search
 
 ```bash
 python train_highlevel_starter.py \
@@ -115,85 +22,30 @@ python train_highlevel_starter.py \
   --population 12
 ```
 
-This writes:
+This is black-box search over starter planner parameters. It optimizes
+`scores.composite_score` from `run_track_bonus.py`.
 
-```text
-artifacts/highlevel_train/best_planner_config.json
-artifacts/highlevel_train/search_summary.json
-```
+## Things To Try
 
-### 2. Replace The Planner With An MLP
+- Tune `speed_mps`, `k_heading`, `k_lateral`, and command scaling inside the
+  starter planner.
+- Replace `track_bonus/planner.py` with an MLP or RL controller.
+- Train the low-level policy to track nonzero `vy` and `yaw_rate`.
+- Use staged evaluation: straight, turn entry, turn middle, turn exit, full lap.
 
-Students may create a learned high-level policy:
+## Watch These Metrics
 
-```text
-features -> MLP -> [vx, vy, yaw_rate]
-```
+- Low `lap_completion`: not enough progress.
+- Low `valid_distance_m`: early fall, boundary exit, or very slow policy.
+- `fall = true`: low-level instability or aggressive commands.
+- `boundary_violation = true`: weak high-level line keeping.
+- High lateral error: controller is safe but inaccurate.
+- High slip or energy: inefficient turning.
 
-Useful features:
+## Minimal Loop
 
-- `lap_fraction`
-- `lateral_error_norm`
-- `boundary_margin_norm`
-- `heading_error_rad`
-- `curvature_norm`
-
-Possible training methods:
-
-- supervised learning from a hand-designed controller
-- dataset aggregation from rollouts
-- black-box optimization over MLP weights for a small network
-- policy gradient / RL on the high-level controller
-
-### 3. Train The Low-Level Policy To Track Turns
-
-The high-level planner can only output commands that the low-level policy can
-track. If the low-level policy was trained only on forward `vx`, then increasing
-high-level yaw commands will not solve the lap.
-
-Students should improve `go2_pg_env/joystick.py` and
-`configs/course_config.json` so stage 2 includes nonzero `vy` and `yaw_rate`.
-
-The intended low-level improvement is:
-
-```text
-command distribution:
-  vx forward range
-  vy small lateral corrections
-  yaw_rate left/right turns
-```
-
-Then the high-level planner has a real actuator-like interface for turning.
-
-## What Metrics Should Students Watch?
-
-Use `results.json`:
-
-- If `lap_completion` is low: speed is too low, high-level steering is poor, or
-  low-level command tracking is weak.
-- If `valid_distance_m` is low: the tournament run ended early or made little
-  progress before timeout.
-- If `fall` is true: commands are too aggressive or low-level stability is not
-  good enough.
-- If `boundary_violation` is true: high-level line keeping is poor, or yaw
-  correction arrives too late.
-- If `rms_lateral_error` is high but no boundary violation occurs: planner is
-  safe but sloppy.
-- If `energy_proxy` or `foot_slip_proxy` is high: gait is inefficient or
-  slipping during turns.
-
-## Recommended Student Optimization Path
-
-1. Run the starter planner with an existing low-level checkpoint.
-2. Inspect whether failure is fall, boundary exit, or simply low progress.
-3. Expand low-level stage 2 command sampling to include yaw-rate commands.
-4. Retrain low-level PPO.
-5. Run starter high-level search for short evaluations.
-6. Evaluate the best config for a longer duration.
-7. Replace the high-level planner with an MLP or RL policy if parameter search
-   plateaus.
-8. Submit the best checkpoint, planner, metrics, and report.
-
-The core idea is that high-level optimization and low-level training must meet
-in the middle: the planner should ask for useful commands, and the locomotion
-policy must actually be able to execute them.
+1. Run starter eval.
+2. Inspect `results.json` and `race.mp4`.
+3. Improve low-level tracking or high-level planner.
+4. Re-evaluate.
+5. Save best checkpoint, planner, metrics, and report.
