@@ -12,11 +12,11 @@ single-policy evaluation and later multi-policy tournament rendering.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import numpy as np
 
 from go2_pg_env.track import StandardOvalTrack, wrap_angle
-from track_bonus.planner import yaw_from_quat_wxyz
 
 
 MAX_TOURNAMENT_ENTRIES = 10
@@ -28,6 +28,11 @@ TRACK_OBS_FEATURE_NAMES = (
     "heading_error_rad",
     "curvature_norm",
 )
+
+
+def yaw_from_quat_wxyz(quat: np.ndarray) -> float:
+    w, x, y, z = np.asarray(quat, dtype=np.float64)
+    return float(math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z)))
 
 
 @dataclass(frozen=True)

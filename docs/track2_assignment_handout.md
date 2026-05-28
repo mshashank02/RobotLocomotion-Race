@@ -46,7 +46,7 @@ The default architecture is hierarchical:
 
 ```text
 track-aware high-level controller:
-  robot pose and track geometry -> [vx, vy, yaw_rate]
+  5D track observation -> [vx, vy, yaw_rate]
 
 HW1-style low-level locomotion policy:
   proprioception + command -> 12 joint actions
@@ -218,9 +218,10 @@ the low-level policy by directly writing joint trajectories into the evaluator.
 Do not use privileged simulator signals in the low-level actor beyond the normal
 HW1 `state` observation.
 
-It is fine for the high-level controller to use global track coordinates. That
-is the point of Track 2. If you discuss real-robot deployment in your report,
-explain what localization system would be needed to provide those coordinates.
+It is fine for the high-level controller to use the compact track-coordinate
+features defined in this repository. That is the point of Track 2. If you
+discuss real-robot deployment in your report, explain what localization system
+would be needed to provide those coordinates.
 
 ## 10. Final Verification
 

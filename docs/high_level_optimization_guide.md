@@ -8,22 +8,21 @@ The provided high-level planner is `StarterTrackPlanner` in
 It is not learned. It is a small coordinate-feedback controller:
 
 ```text
-qpos + track geometry -> [vx, vy, yaw_rate]
+5D track observation -> [vx, vy, yaw_rate]
 ```
 
 It computes:
 
 - projection onto the 200 m oval centerline
-- lateral error from the centerline
-- current yaw
-- lookahead track heading
+- normalized lateral error from the centerline
+- normalized boundary margin
 - heading error
-- local curvature feedforward
+- normalized local curvature feedforward
 
 Then it outputs a conservative joystick command for the low-level policy.
 
 The JSON parameters in `configs/starter_planner.json` control the starter
-planner's speed, lookahead, heading correction, and lateral correction.
+planner's speed, heading correction, and lateral correction.
 
 All high-level methods must keep the same runtime interface:
 
@@ -102,7 +101,6 @@ Easiest path:
 
 - increase `speed_mps`
 - increase `max_yaw_rate_radps`
-- tune `lookahead_m`
 - tune `k_heading`
 - tune `k_lateral`
 - keep `max_lateral_speed_mps` within what the low-level policy can track
@@ -134,13 +132,11 @@ features -> MLP -> [vx, vy, yaw_rate]
 
 Useful features:
 
-- normalized global x/y
-- sine/cosine lap phase
-- lateral error / track half-width
-- boundary margin / track half-width
-- sine/cosine heading error
-- curvature
-- lookahead heading error
+- `lap_fraction`
+- `lateral_error_norm`
+- `boundary_margin_norm`
+- `heading_error_rad`
+- `curvature_norm`
 
 Possible training methods:
 

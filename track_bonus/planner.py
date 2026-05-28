@@ -5,7 +5,7 @@ features internally. The student-facing tournament contract is the compact 5D
 track observation defined in `track_bonus/controller_interface.py`, mapped to
 the local joystick command consumed by the HW1 Go2 locomotion policy:
 
-    qpos + track -> [vx, vy, yaw_rate]
+    5D track observation -> [vx, vy, yaw_rate]
 
 This file is intentionally small.  It is a weak baseline and an interface
 example, not a solved full-lap controller.
@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 
 from go2_pg_env.track import StandardOvalTrack, wrap_angle
+from track_bonus.controller_interface import TrackControllerObservation, build_track_controller_observation
 
 
 @dataclass(frozen=True)
@@ -31,7 +32,6 @@ class StarterPlannerConfig:
     min_speed_mps: float = 0.12
     max_lateral_speed_mps: float = 0.08
     max_yaw_rate_radps: float = 0.25
-    lookahead_m: float = 3.0
     k_heading: float = 0.55
     k_lateral: float = 0.08
     heading_slowdown: float = 0.45
@@ -57,7 +57,6 @@ class StarterPlannerConfig:
             "min_speed_mps": self.min_speed_mps,
             "max_lateral_speed_mps": self.max_lateral_speed_mps,
             "max_yaw_rate_radps": self.max_yaw_rate_radps,
-            "lookahead_m": self.lookahead_m,
             "k_heading": self.k_heading,
             "k_lateral": self.k_lateral,
             "heading_slowdown": self.heading_slowdown,
@@ -66,11 +65,6 @@ class StarterPlannerConfig:
             "turn_radius_m": self.turn_radius_m,
             "half_width_m": self.half_width_m,
         }
-
-
-def yaw_from_quat_wxyz(quat: np.ndarray) -> float:
-    w, x, y, z = np.asarray(quat, dtype=np.float64)
-    return float(math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z)))
 
 
 class StarterTrackPlanner:
@@ -99,20 +93,16 @@ class StarterTrackPlanner:
         if t < self.config.stand_seconds:
             return np.zeros(3, dtype=np.float32)
 
-        xy = np.asarray(qpos[:2], dtype=np.float64)
-        yaw = yaw_from_quat_wxyz(np.asarray(qpos[3:7], dtype=np.float64))
-        projection = self.track.project_xy_to_track(xy)
-        _, lookahead_heading, lookahead_curvature = self.track.centerline_pose(
-            projection.s + float(self.config.lookahead_m)
-        )
+        obs = build_track_controller_observation(qpos=qpos, track=self.track)
+        return self.command_from_observation(obs)
 
-        lateral_error = projection.signed_lateral_error
+    def command_from_observation(self, obs: TrackControllerObservation) -> np.ndarray:
+        lateral_error = float(obs.lateral_error_norm) * float(self.track.half_width_m)
         lateral_bias = math.atan2(
             float(self.config.k_lateral) * lateral_error,
             max(float(self.config.speed_mps), 1e-3),
         )
-        desired_heading = wrap_angle(lookahead_heading - lateral_bias)
-        heading_error = wrap_angle(desired_heading - yaw)
+        heading_error = wrap_angle(float(obs.heading_error_rad) - lateral_bias)
 
         speed_scale = 1.0 - float(self.config.heading_slowdown) * min(abs(heading_error), math.pi) / math.pi
         vx = np.clip(
@@ -125,8 +115,9 @@ class StarterTrackPlanner:
             -float(self.config.max_lateral_speed_mps),
             float(self.config.max_lateral_speed_mps),
         )
+        curvature = float(obs.curvature_norm) / max(float(self.track.turn_radius_m), 1e-6)
         yaw_rate = np.clip(
-            lookahead_curvature * vx + float(self.config.k_heading) * heading_error,
+            curvature * vx + float(self.config.k_heading) * heading_error,
             -float(self.config.max_yaw_rate_radps),
             float(self.config.max_yaw_rate_radps),
         )

@@ -92,7 +92,8 @@ Allowed:
 - Replacing `track_bonus/planner.py` with your own high-level controller.
 - Training a high-level MLP, RL policy, residual controller, black-box searched
   controller, or hand-designed baseline.
-- Using global track features in the high-level controller.
+- Using the compact track-coordinate features specified in
+  `docs/controller_interface.md`.
 - Adding new config files, scripts, or planner modules.
 
 Not allowed:
