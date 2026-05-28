@@ -1,0 +1,15 @@
+{
+  "planner_type": "starter_pd",
+  "speed_mps": 0.45,
+  "min_speed_mps": 0.12,
+  "max_lateral_speed_mps": 0.08,
+  "max_yaw_rate_radps": 0.25,
+  "lookahead_m": 3.0,
+  "k_heading": 0.55,
+  "k_lateral": 0.08,
+  "heading_slowdown": 0.45,
+  "stand_seconds": 1.0,
+  "track_length_m": 200.0,
+  "turn_radius_m": 18.25,
+  "half_width_m": 2.0
+}

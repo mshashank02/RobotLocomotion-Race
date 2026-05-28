@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+artifacts/
+outputs/
+baselines/
+go2_pg_env/xmls/assets/
+best_checkpoint/
+planner.npz
+training_summary.json
+*.mp4
+*.gif

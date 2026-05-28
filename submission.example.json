@@ -1,0 +1,7 @@
+{
+  "team_name": "example_team",
+  "checkpoint_dir": "best_checkpoint",
+  "planner": "planner_config.json",
+  "training_steps": 15000000,
+  "notes": "Briefly describe your low-level training, high-level planner, and failed ideas."
+}
