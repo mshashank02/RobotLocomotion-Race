@@ -1,14 +1,12 @@
 import numpy as np
 import pytest
 
-from competition.race_scene import resolve_go2_asset_model_dir
-from competition.track_scene import build_track_model
+from competition.track_scene import build_track_model, resolve_go2_asset_model_dir
 from go2_pg_env.track import StandardOvalTrack
 from run_track_bonus import _validate_checkpoint
 from track_bonus.controller_interface import (
     LOWLEVEL_ACTION_SIZE,
     LOWLEVEL_STATE_OBS_SIZE,
-    MAX_TOURNAMENT_ENTRIES,
     TRACK_OBS_FEATURE_NAMES,
     build_track_controller_observation,
     validate_high_level_command,
@@ -46,14 +44,19 @@ def test_track_controller_observation_is_compact_track_state() -> None:
     assert 0.0 <= obs.lap_fraction < 1.0
 
 
-def test_track_scene_compiles_ten_dogs_when_assets_are_available() -> None:
+def test_track_scene_compiles_single_dog_when_assets_are_available() -> None:
     try:
         resolve_go2_asset_model_dir()
     except FileNotFoundError as exc:
         pytest.skip(str(exc))
-    model = build_track_model(num_dogs=MAX_TOURNAMENT_ENTRIES, colors=["#2563EB"] * MAX_TOURNAMENT_ENTRIES)
-    assert model.nq == 19 * MAX_TOURNAMENT_ENTRIES
-    assert model.nu == 12 * MAX_TOURNAMENT_ENTRIES
+    model = build_track_model(num_dogs=1, colors=["#2563EB"])
+    assert model.nq == 19
+    assert model.nu == 12
+
+
+def test_student_track_scene_rejects_multi_dog_rendering() -> None:
+    with pytest.raises(ValueError, match="one Go2"):
+        build_track_model(num_dogs=2)
 
 
 def test_checkpoint_validation_requires_hw1_actor_contract(tmp_path) -> None:

@@ -1,19 +1,84 @@
-"""Build and render multi-Go2 scenes on the 200 m oval track."""
+"""Build and render a single Go2 on the 200 m oval track."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from competition.race_scene import GO2_BODY_XML, resolve_go2_asset_model_dir, tint_dogs
 from go2_pg_env.track import StandardOvalTrack
-from track_bonus.controller_interface import MAX_TOURNAMENT_ENTRIES
+
+
+ROOT = Path(__file__).resolve().parents[1]
+GO2_XML_DIR = ROOT / "go2_pg_env" / "xmls"
+GO2_BODY_XML = GO2_XML_DIR / "go2_mjx_feetonly.xml"
+
+
+def _hex_to_rgba(color: str) -> np.ndarray | None:
+    color = color.strip()
+    if not color.startswith("#") or len(color) not in (7, 9):
+        return None
+    try:
+        values = [int(color[idx : idx + 2], 16) / 255.0 for idx in range(1, 7, 2)]
+        alpha = int(color[7:9], 16) / 255.0 if len(color) == 9 else 1.0
+    except ValueError:
+        return None
+    return np.asarray([*values, alpha], dtype=np.float32)
+
+
+def _asset_dir_is_valid(model_dir: Path) -> bool:
+    return (model_dir / "assets" / "base_0.obj").is_file()
+
+
+def resolve_go2_asset_model_dir(explicit: str | Path | None = None) -> Path:
+    """Return a directory that contains the Go2 `assets/` mesh folder."""
+    candidates: list[Path] = []
+    if explicit:
+        candidates.append(Path(explicit).expanduser())
+    if os.environ.get("UNITREE_GO2_MODEL_DIR"):
+        candidates.append(Path(os.environ["UNITREE_GO2_MODEL_DIR"]).expanduser())
+    candidates.extend(
+        [
+            GO2_XML_DIR,
+            ROOT.parent / "Referrals" / "unitree_mujoco-main" / "unitree_robots" / "go2",
+            ROOT.parent / "unitree_mujoco" / "unitree_robots" / "go2",
+            ROOT.parent / "unitree_mujoco-original" / "unitree_robots" / "go2",
+        ]
+    )
+
+    for candidate in candidates:
+        if _asset_dir_is_valid(candidate):
+            return candidate.resolve()
+
+    searched = "\n".join(f"  - {candidate}" for candidate in candidates)
+    raise FileNotFoundError(
+        "Could not find Go2 mesh assets. Run scripts/copy_go2_assets.py, set "
+        "UNITREE_GO2_MODEL_DIR, or pass asset_model_dir.\n"
+        f"Searched:\n{searched}"
+    )
 
 
 def _rgba_string(rgba: tuple[float, float, float, float]) -> str:
     return " ".join(f"{value:.3f}" for value in rgba)
+
+
+def tint_robot(model: Any, color: str, *, blend: float = 0.32) -> None:
+    """Subtly tint the visual mesh materials while preserving the Go2 look."""
+    import mujoco
+
+    rgba = _hex_to_rgba(color)
+    if rgba is None:
+        return
+    blend = float(np.clip(blend, 0.0, 1.0))
+    for mat_id in range(model.nmat):
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_MATERIAL, mat_id) or ""
+        if name.startswith("dog0_") and not name.endswith("black"):
+            original = np.asarray(model.mat_rgba[mat_id], dtype=np.float32)
+            tinted = original * (1.0 - blend) + rgba * blend
+            tinted[3] = original[3]
+            model.mat_rgba[mat_id] = tinted
 
 
 def _track_points(track: StandardOvalTrack, *, marker_count: int, lateral_offset: float) -> np.ndarray:
@@ -110,7 +175,7 @@ def _parent_track_xml(track: StandardOvalTrack, *, marker_count: int) -> str:
     geoms.extend(_start_finish_geoms(track))
 
     return f"""
-<mujoco model="go2 oval track competition">
+<mujoco model="go2 oval track bonus">
   <option timestep="0.004" integrator="Euler"/>
   <visual>
     <headlight diffuse=".48 .48 .45" ambient=".18 .18 .18" specular=".18 .18 .18"/>
@@ -142,11 +207,9 @@ def build_track_model(
     track: StandardOvalTrack | None = None,
     marker_count: int = 96,
 ):
-    """Compile a MuJoCo model containing `num_dogs` Go2s on one oval track."""
-    if num_dogs < 1:
-        raise ValueError("num_dogs must be positive.")
-    if num_dogs > MAX_TOURNAMENT_ENTRIES:
-        raise ValueError(f"The track renderer supports at most {MAX_TOURNAMENT_ENTRIES} dogs.")
+    """Compile a MuJoCo model containing one Go2 on the oval track."""
+    if num_dogs != 1:
+        raise ValueError("The student track renderer supports one Go2 trajectory.")
 
     import mujoco
 
@@ -163,7 +226,7 @@ def build_track_model(
     if model.nq != 19 * num_dogs or model.nu != 12 * num_dogs:
         raise RuntimeError(f"Unexpected track model dimensions: nq={model.nq}, nu={model.nu}, dogs={num_dogs}")
     if colors:
-        tint_dogs(model, colors, blend=robot_tint_strength)
+        tint_robot(model, colors[0], blend=robot_tint_strength)
     return model
 
 
@@ -201,7 +264,7 @@ def render_track_video(
     asset_model_dir: str | Path | None = None,
     track_config: dict[str, Any] | None = None,
 ) -> Path:
-    """Render synchronized global-coordinate policy trajectories on an oval."""
+    """Render one global-coordinate policy trajectory on an oval."""
     import mujoco
 
     track_config = track_config or {}
@@ -214,9 +277,11 @@ def render_track_video(
 
     trajectories_qpos = np.asarray(trajectories_qpos, dtype=np.float64)
     if trajectories_qpos.ndim != 3 or trajectories_qpos.shape[-1] != 19:
-        raise ValueError("trajectories_qpos must have shape [num_policies, steps, 19].")
+        raise ValueError("trajectories_qpos must have shape [1, steps, 19].")
 
     num_dogs, num_steps, _ = trajectories_qpos.shape
+    if num_dogs != 1:
+        raise ValueError("The student track renderer supports one Go2 trajectory.")
     model = build_track_model(
         num_dogs=num_dogs,
         colors=colors,

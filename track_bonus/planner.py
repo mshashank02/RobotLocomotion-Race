@@ -1,7 +1,7 @@
 """Starter high-level planner for the 200 m track bonus.
 
 The evaluator passes `qpos` to this wrapper so the starter can construct track
-features internally. The student-facing tournament contract is the compact 5D
+features internally. The student-facing controller contract is the compact 5D
 track observation defined in `track_bonus/controller_interface.py`, mapped to
 the local joystick command consumed by the HW1 Go2 locomotion policy:
 

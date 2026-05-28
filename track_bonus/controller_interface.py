@@ -1,4 +1,4 @@
-"""Shared high-level controller interface for the track tournament.
+"""Shared high-level controller interface for the track bonus.
 
 The official high-level output is always:
 
@@ -6,7 +6,7 @@ The official high-level output is always:
 
 The command is consumed by the HW1-style low-level Go2 policy.  This module
 keeps the command contract explicit so student planners remain compatible with
-single-policy evaluation and later multi-policy tournament rendering.
+single-policy evaluation.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ import numpy as np
 from go2_pg_env.track import StandardOvalTrack, wrap_angle
 
 
-MAX_TOURNAMENT_ENTRIES = 10
 LOWLEVEL_STATE_OBS_SIZE = 48
 LOWLEVEL_ACTION_SIZE = 12
 
@@ -39,7 +38,7 @@ def yaw_from_quat_wxyz(quat: np.ndarray) -> float:
 
 @dataclass(frozen=True)
 class TrackControllerObservation:
-    """Compact track-coordinate observation for the tournament controller."""
+    """Compact track-coordinate observation for the high-level controller."""
 
     lap_fraction: float
     lateral_error_norm: float
