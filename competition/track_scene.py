@@ -9,6 +9,7 @@ import numpy as np
 
 from competition.race_scene import GO2_BODY_XML, resolve_go2_asset_model_dir, tint_dogs
 from go2_pg_env.track import StandardOvalTrack
+from track_bonus.controller_interface import MAX_TOURNAMENT_ENTRIES
 
 
 def _rgba_string(rgba: tuple[float, float, float, float]) -> str:
@@ -144,8 +145,8 @@ def build_track_model(
     """Compile a MuJoCo model containing `num_dogs` Go2s on one oval track."""
     if num_dogs < 1:
         raise ValueError("num_dogs must be positive.")
-    if num_dogs > 10:
-        raise ValueError("The track renderer supports at most 10 dogs.")
+    if num_dogs > MAX_TOURNAMENT_ENTRIES:
+        raise ValueError(f"The track renderer supports at most {MAX_TOURNAMENT_ENTRIES} dogs.")
 
     import mujoco
 

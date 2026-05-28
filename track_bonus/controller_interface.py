@@ -20,6 +20,8 @@ from go2_pg_env.track import StandardOvalTrack, wrap_angle
 
 
 MAX_TOURNAMENT_ENTRIES = 10
+LOWLEVEL_STATE_OBS_SIZE = 48
+LOWLEVEL_ACTION_SIZE = 12
 
 TRACK_OBS_FEATURE_NAMES = (
     "lap_fraction",

@@ -36,6 +36,7 @@ Use the HW1 Brax PPO format:
 
 - `ppo_network_config.json` exists
 - actor `policy_obs_key = "state"`
+- `state` observation shape is 48
 - no `privileged_state` actor
 - 12-dimensional action
 

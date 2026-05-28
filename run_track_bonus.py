@@ -33,7 +33,7 @@ from course_common import (
 )
 from go2_pg_env.track import StandardOvalTrack
 from test_policy import load_policy_with_workaround
-from track_bonus.controller_interface import validate_high_level_command
+from track_bonus.controller_interface import LOWLEVEL_ACTION_SIZE, LOWLEVEL_STATE_OBS_SIZE, validate_high_level_command
 from track_bonus.planner import StarterTrackPlanner
 from track_bonus.scoring import compute_track_bonus_metrics, score_track_bonus
 
@@ -47,6 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--planner-config", type=Path, default=ROOT / "configs" / "starter_planner.json")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH, help="HW1 course config JSON.")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--entry-name", type=str, default="starter", help="Name written to leaderboard.csv and race_rollouts.npz.")
     parser.add_argument("--stage-name", choices=["stage_1", "stage_2"], default="stage_2")
     parser.add_argument("--duration-seconds", type=float, default=300.0)
     parser.add_argument("--start-s-m", type=float, default=0.0)
@@ -75,6 +76,12 @@ def _validate_checkpoint(checkpoint_dir: Path) -> None:
     obs_key = kwargs.get("policy_obs_key")
     if obs_key != "state":
         raise ValueError(f"Expected actor policy_obs_key='state', got {obs_key!r}.")
+    action_size = payload.get("action_size")
+    if action_size is not None and int(action_size) != LOWLEVEL_ACTION_SIZE:
+        raise ValueError(f"Expected action_size={LOWLEVEL_ACTION_SIZE}, got {action_size!r}.")
+    state_shape = payload.get("observation_size", {}).get("state", {}).get("shape")
+    if state_shape is not None and list(state_shape) != [LOWLEVEL_STATE_OBS_SIZE]:
+        raise ValueError(f"Expected state observation shape [{LOWLEVEL_STATE_OBS_SIZE}], got {state_shape!r}.")
 
 
 def _make_env(stack: dict[str, Any], course_cfg: dict[str, Any], stage_name: str, episode_steps: int) -> Any:
@@ -247,14 +254,14 @@ def main() -> None:
 
     np.savez_compressed(
         output_dir / "race_rollouts.npz",
-        policy_names=np.asarray(["starter"]),
+        policy_names=np.asarray([str(args.entry_name)]),
         qpos=result["qpos"][None, ...],
         dt=np.asarray([result["dt"]], dtype=np.float32),
         command=result["command"],
     )
     (output_dir / "leaderboard.csv").write_text(
         "rank,name,composite_score,lap_completion,valid_distance_m,finish_time,mean_progress_speed,fall,boundary_violation,rms_lateral_error,max_lateral_error\n"
-        f"1,starter,{scores['composite_score']},{metrics['lap_completion']},"
+        f"1,{args.entry_name},{scores['composite_score']},{metrics['lap_completion']},"
         f"{metrics['valid_distance_m']},"
         f"{'' if metrics['finish_time'] is None else metrics['finish_time']},{metrics['mean_progress_speed']},"
         f"{metrics['fall']},{metrics['boundary_violation']},{metrics['rms_lateral_error']},{metrics['max_lateral_error']}\n",
@@ -277,6 +284,7 @@ def main() -> None:
 
     payload = {
         "challenge": "track_bonus",
+        "entry_name": str(args.entry_name),
         "checkpoint_dir": str(args.checkpoint_dir.resolve()),
         "planner_config": str(args.planner_config.resolve()),
         "metrics": metrics,

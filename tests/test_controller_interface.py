@@ -4,7 +4,10 @@ import pytest
 from competition.race_scene import resolve_go2_asset_model_dir
 from competition.track_scene import build_track_model
 from go2_pg_env.track import StandardOvalTrack
+from run_track_bonus import _validate_checkpoint
 from track_bonus.controller_interface import (
+    LOWLEVEL_ACTION_SIZE,
+    LOWLEVEL_STATE_OBS_SIZE,
     MAX_TOURNAMENT_ENTRIES,
     TRACK_OBS_FEATURE_NAMES,
     build_track_controller_observation,
@@ -51,3 +54,49 @@ def test_track_scene_compiles_ten_dogs_when_assets_are_available() -> None:
     model = build_track_model(num_dogs=MAX_TOURNAMENT_ENTRIES, colors=["#2563EB"] * MAX_TOURNAMENT_ENTRIES)
     assert model.nq == 19 * MAX_TOURNAMENT_ENTRIES
     assert model.nu == 12 * MAX_TOURNAMENT_ENTRIES
+
+
+def test_checkpoint_validation_requires_hw1_actor_contract(tmp_path) -> None:
+    config_path = tmp_path / "ppo_network_config.json"
+    config_path.write_text(
+        (
+            '{"action_size": 12, '
+            '"network_factory_kwargs": {"policy_obs_key": "state"}, '
+            '"observation_size": {"state": {"shape": [48]}}}'
+        ),
+        encoding="utf-8",
+    )
+    _validate_checkpoint(tmp_path)
+
+    config_path.write_text(
+        (
+            '{"action_size": 12, '
+            '"network_factory_kwargs": {"policy_obs_key": "privileged_state"}, '
+            '"observation_size": {"state": {"shape": [48]}}}'
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="policy_obs_key"):
+        _validate_checkpoint(tmp_path)
+
+    config_path.write_text(
+        (
+            f'{{"action_size": {LOWLEVEL_ACTION_SIZE}, '
+            '"network_factory_kwargs": {"policy_obs_key": "state"}, '
+            f'"observation_size": {{"state": {{"shape": [{LOWLEVEL_STATE_OBS_SIZE + 1}]}}}}}}'
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="state observation shape"):
+        _validate_checkpoint(tmp_path)
+
+    config_path.write_text(
+        (
+            f'{{"action_size": {LOWLEVEL_ACTION_SIZE + 1}, '
+            '"network_factory_kwargs": {"policy_obs_key": "state"}, '
+            f'"observation_size": {{"state": {{"shape": [{LOWLEVEL_STATE_OBS_SIZE}]}}}}}}'
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="action_size"):
+        _validate_checkpoint(tmp_path)

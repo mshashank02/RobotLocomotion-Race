@@ -49,7 +49,7 @@ Main metrics: `lap_completion`, `valid_distance_m`, `finish_time`, `fall`,
 
 ```text
 best_checkpoint/
-planner_config.json or planner file
+planner_config.json and changed planner code
 submission.json
 track_eval/results.json
 optional track_eval/race.mp4
@@ -61,6 +61,7 @@ final metrics, and one failed idea.
 
 ## Grading
 
-Proposal projects use the final-project rubric. Tournament entries use
-leaderboard performance, method quality, analysis, presentation, and
-reproducibility. Doing both routes is eligible for bonus.
+Proposal projects use the final-project rubric. Tournament entries use the
+same distribution as the final-project route. Ranking uses track distance,
+completion time, method quality, analysis, presentation, and reproducibility.
+Doing both routes is eligible for bonus.

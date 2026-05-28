@@ -60,7 +60,7 @@ Typical tournament submission:
 
 ```text
 best_checkpoint/
-planner_config.json or planner file
+planner_config.json and changed planner code
 submission.json
 track_eval/results.json
 optional track_eval/race.mp4
