@@ -1,0 +1,8 @@
+{
+  "selection_method": "best_eval_reward",
+  "selected_step": 4915200,
+  "selected_eval_reward": 77.66094970703125,
+  "source_checkpoint_dir": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/stage2_adaptive_curriculum_reward_v2/stage_2/checkpoints/000004915200",
+  "exported_checkpoint_dir": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/stage2_adaptive_curriculum_reward_v2/best_checkpoint",
+  "exported_at_unix": 1780786584.522568
+}

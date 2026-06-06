@@ -1,0 +1,8 @@
+{
+  "selection_method": "best_eval_reward",
+  "selected_step": 13107200,
+  "selected_eval_reward": 101.07623291015625,
+  "source_checkpoint_dir": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/stage1_forward_motion_reward_v2/stage_1/checkpoints/000013107200",
+  "exported_checkpoint_dir": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/stage1_forward_motion_reward_v2/best_checkpoint",
+  "exported_at_unix": 1780784953.6773047
+}
