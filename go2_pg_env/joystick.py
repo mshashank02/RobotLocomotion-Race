@@ -119,6 +119,7 @@ def default_config() -> config_dict.ConfigDict:
                 success_threshold=0.8,
                 error_threshold=[0.15, 0.15, 0.2],
                 sampling_epsilon=0.05,
+                min_bin_updates_before_expand=4,
                 vx_values=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2],
                 vy_values=[-0.4, -0.2, 0.0, 0.2, 0.4],
                 yaw_values=[-1.0, -0.5, 0.0, 0.5, 1.0],
@@ -215,6 +216,7 @@ class Joystick(go2_base.Go2Env):
         self._command_curriculum_success_threshold = float(curriculum_cfg.success_threshold)
         self._command_curriculum_error_threshold = jp.array(curriculum_cfg.error_threshold)
         self._command_curriculum_sampling_epsilon = float(curriculum_cfg.sampling_epsilon)
+        self._command_curriculum_min_bin_updates = float(curriculum_cfg.min_bin_updates_before_expand)
         self._curriculum_vx_values = jp.array(curriculum_cfg.vx_values)
         self._curriculum_vy_values = jp.array(curriculum_cfg.vy_values)
         self._curriculum_yaw_values = jp.array(curriculum_cfg.yaw_values)
@@ -577,7 +579,8 @@ class Joystick(go2_base.Go2Env):
         feet_vel = data.sensordata[self._foot_linvel_sensor_adr]
         vel_xy = feet_vel[..., :2]
         vel_xy_norm_sq = jp.sum(jp.square(vel_xy), axis=-1)
-        return jp.sum(vel_xy_norm_sq * contact) * (jp.linalg.norm(info["command"]) > 0.01)
+        foot_weights = jp.array([1.0, 1.0, 1.8, 1.8])
+        return jp.sum(vel_xy_norm_sq * contact * foot_weights) * (jp.linalg.norm(info["command"]) > 0.01)
 
     def _cost_feet_clearance(self, data: mjx.Data) -> jax.Array:
         feet_vel = data.sensordata[self._foot_linvel_sensor_adr]
@@ -665,7 +668,9 @@ class Joystick(go2_base.Go2Env):
             jp.where(should_update, new_count, info["command_bin_count"][vx_idx, vy_idx, yaw_idx])
         )
 
-        successful_bin = (new_success >= self._command_curriculum_success_threshold) | (command_success > 0.0)
+        successful_bin = (new_success >= self._command_curriculum_success_threshold) & (
+            new_count >= self._command_curriculum_min_bin_updates
+        )
         limits = info["curriculum_limits"]
         vx_frontier = vx_idx >= limits[0]
         vy_frontier = jp.abs(vy_idx - self._curriculum_vy_center) >= limits[1]
