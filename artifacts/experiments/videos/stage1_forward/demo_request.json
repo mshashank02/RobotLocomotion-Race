@@ -1,0 +1,6 @@
+{
+  "checkpoint_dir": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/stage1_forward_motion/best_checkpoint",
+  "stage_name": "stage_1",
+  "render_steps": 0,
+  "force_cpu": false
+}
