@@ -93,9 +93,35 @@ def set_runtime_env(*, force_cpu: bool = False) -> None:
         os.environ["XLA_FLAGS"] = (xla_flags + " " + extra_flag).strip()
 
 
+def install_jax_legacy_put_shims(jax: Any) -> None:
+    """Add removed JAX pmap-era helpers needed by older Brax releases."""
+    import numpy as np
+    import jax.numpy as jnp
+    from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
+
+    if not hasattr(jax, "device_put_sharded"):
+        def device_put_sharded(shards: Any, devices: Any) -> Any:
+            mesh = Mesh(np.array(devices), ("x",))
+            sharding = NamedSharding(mesh, P("x"))
+            return jax.tree.map(lambda *xs: jax.device_put(jnp.stack(xs), sharding), *shards)
+
+        jax.device_put_sharded = device_put_sharded
+
+    if not hasattr(jax, "device_put_replicated"):
+        def device_put_replicated(value: Any, devices: Any) -> Any:
+            mesh = Mesh(np.array(devices), ("x",))
+            sharding = NamedSharding(mesh, P("x"))
+            return jax.tree.map(lambda leaf: jax.device_put(jnp.stack([leaf] * len(devices)), sharding), value)
+
+        jax.device_put_replicated = device_put_replicated
+
+
 def lazy_import_stack() -> dict[str, Any]:
     """Import heavy dependencies only after runtime flags are set."""
     import jax
+
+    install_jax_legacy_put_shims(jax)
+
     import mediapy as media
     from brax.training.agents.ppo import networks as ppo_networks
     from brax.training.agents.ppo import train as ppo_train_module
