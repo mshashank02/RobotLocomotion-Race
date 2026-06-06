@@ -1,0 +1,58 @@
+{
+  "homework_name": "Final Project Track 2 Bonus: Go2 Low-Level Locomotion Baseline",
+  "robot": "Go2",
+  "environment_name": "Go2JoystickFlatTerrain",
+  "stage_name": "stage_2",
+  "checkpoint_dir": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/stage2_adaptive_curriculum_reward_v2/best_checkpoint",
+  "num_steps": 98,
+  "metrics": {
+    "velocity_tracking_error": 0.25900527834892273,
+    "yaw_tracking_error": 0.22958843410015106,
+    "fall_rate": 1.0,
+    "energy_proxy": 47.96482849121094,
+    "foot_slip_proxy": 0.34380364418029785
+  },
+  "normalized_scores": {
+    "velocity_tracking_error": 0.5456992047173637,
+    "yaw_tracking_error": 0.6760289147496223,
+    "fall_rate": 0.0,
+    "energy_proxy": 0.0,
+    "foot_slip_proxy": 0.0
+  },
+  "course_composite_score": 0.32620050460100175,
+  "rollout_summary": {
+    "video_path": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/videos/stage2_reward_v2_right/demo.mp4",
+    "rollout_npz": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/videos/stage2_reward_v2_right/rollout_public_eval.npz",
+    "num_steps_simulated": 98,
+    "terminated_early": true,
+    "done_step": 98,
+    "x_distance_m": -0.1469375193119049,
+    "y_offset_m": 0.4591052532196045,
+    "final_base_height_m": 0.2182697206735611,
+    "mean_command_vx": 0.0,
+    "mean_measured_vx": 0.10111269354820251,
+    "mean_abs_yaw_error": 0.22958843410015106,
+    "demo_segments": [
+      [
+        0.0,
+        -0.3,
+        0.0
+      ],
+      [
+        0.0,
+        -0.3,
+        0.0
+      ],
+      [
+        0.0,
+        -0.3,
+        0.0
+      ],
+      [
+        0.0,
+        -0.3,
+        0.0
+      ]
+    ]
+  }
+}

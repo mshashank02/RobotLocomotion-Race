@@ -1,0 +1,6 @@
+{
+  "checkpoint_dir": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/stage2_adaptive_curriculum_reward_v2/best_checkpoint",
+  "stage_name": "stage_2",
+  "render_steps": 0,
+  "force_cpu": false
+}
