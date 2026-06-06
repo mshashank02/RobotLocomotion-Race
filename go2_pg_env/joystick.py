@@ -365,7 +365,7 @@ class Joystick(go2_base.Go2Env):
         state.info["rng"], key1, key2 = jax.random.split(state.info["rng"], 3)
         resample_command = state.info["steps_until_next_cmd"] <= 0
         if self._command_curriculum_enabled and self._command_stage_name == "stage_2":
-            state.info = self._update_command_curriculum(state.info, resample_command | done)
+            self._update_command_curriculum(state.info, resample_command | done)
         new_command, new_command_bin = self._sample_command(
             key1,
             state.info["command"],
