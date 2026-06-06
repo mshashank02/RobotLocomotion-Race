@@ -68,6 +68,7 @@ def default_config() -> config_dict.ConfigDict:
                 # Task terms
                 tracking_lin_vel=1.0,
                 tracking_ang_vel=0.5,
+                command_tracking_error=-0.0,
                 # Stability terms
                 lin_vel_z=-0.5,
                 ang_vel_xy=-0.05,
@@ -481,6 +482,9 @@ class Joystick(go2_base.Go2Env):
         return {
             "tracking_lin_vel": self._reward_tracking_lin_vel(info["command"], self.get_local_linvel(data)),
             "tracking_ang_vel": self._reward_tracking_ang_vel(info["command"], self.get_gyro(data)),
+            "command_tracking_error": self._cost_command_tracking_error(
+                info["command"], self.get_local_linvel(data), self.get_gyro(data)
+            ),
             "lin_vel_z": self._cost_lin_vel_z(self.get_global_linvel(data)),
             "ang_vel_xy": self._cost_ang_vel_xy(self.get_global_angvel(data)),
             "orientation": self._cost_orientation(self.get_upvector(data)),
@@ -510,6 +514,13 @@ class Joystick(go2_base.Go2Env):
     def _reward_tracking_ang_vel(self, commands: jax.Array, ang_vel: jax.Array) -> jax.Array:
         ang_vel_error = jp.square(commands[2] - ang_vel[2])
         return jp.exp(-ang_vel_error / self._config.reward_config.tracking_sigma_yaw)
+
+    def _cost_command_tracking_error(
+        self, commands: jax.Array, local_vel: jax.Array, ang_vel: jax.Array
+    ) -> jax.Array:
+        lin_error = jp.sum(jp.square(commands[:2] - local_vel[:2]))
+        yaw_error = jp.square(commands[2] - ang_vel[2])
+        return lin_error + 0.5 * yaw_error
 
     # --- Stability costs ---------------------------------------------------
 
