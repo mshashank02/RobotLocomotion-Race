@@ -165,8 +165,19 @@ def apply_stage_config(env_cfg: Any, ppo_cfg: Any, config: dict[str, Any], stage
         env_cfg.command_config.student_stage2_goal_min = list(stage_cfg["student_stage2_goal"]["command_range"]["min"])
         env_cfg.command_config.student_stage2_goal_max = list(stage_cfg["student_stage2_goal"]["command_range"]["max"])
         env_cfg.command_config.student_stage2_goal_b = list(stage_cfg["student_stage2_goal"]["command_keep_prob"])
-    env_cfg.reward_config.scales.action_rate = float(stage_cfg["reward_scales"]["action_rate"])
-    env_cfg.reward_config.scales.energy = float(stage_cfg["reward_scales"]["energy"])
+    if "command_resampling_time_seconds" in stage_cfg:
+        env_cfg.command_config.resampling_time_seconds = float(stage_cfg["command_resampling_time_seconds"])
+    for name, value in stage_cfg.get("command_curriculum", {}).items():
+        env_cfg.command_config.curriculum[name] = value
+    for name, value in stage_cfg.get("reward_scales", {}).items():
+        env_cfg.reward_config.scales[name] = float(value)
+    reward_params = stage_cfg.get("reward_params", {})
+    if "tracking_sigma" in reward_params:
+        env_cfg.reward_config.tracking_sigma = float(reward_params["tracking_sigma"])
+    if "tracking_sigma_yaw" in reward_params:
+        env_cfg.reward_config.tracking_sigma_yaw = float(reward_params["tracking_sigma_yaw"])
+    if "max_foot_height" in reward_params:
+        env_cfg.reward_config.max_foot_height = float(reward_params["max_foot_height"])
 
     stage_steps_key = f"{stage_name}_num_timesteps"
     ppo_cfg.num_timesteps = int(runtime_overrides.get(stage_steps_key, stage_cfg["num_timesteps"]))

@@ -79,14 +79,19 @@ def default_config() -> config_dict.ConfigDict:
                 # Smoothness / efficiency terms
                 torques=-0.0002,
                 action_rate=-0.01,
+                action_smoothness_1=-0.0,
+                action_smoothness_2=-0.0,
+                dof_acc=-0.0,
                 energy=-0.001,
                 # Foot-behavior terms
                 feet_clearance=-2.0,
                 feet_height=-0.2,
                 feet_slip=-0.1,
+                feet_impact_vel=-0.0,
                 feet_air_time=0.1,
             ),
             tracking_sigma=0.25,
+            tracking_sigma_yaw=0.25,
             max_foot_height=0.1,
         ),
         pert_config=config_dict.create(
@@ -106,6 +111,20 @@ def default_config() -> config_dict.ConfigDict:
             student_stage2_goal_min=[-1.0, -0.4, -1.0],
             student_stage2_goal_max=[1.0, 0.4, 1.0],
             student_stage2_goal_b=[0.9, 0.25, 0.5],
+            resampling_time_seconds=10.0,
+            curriculum=config_dict.create(
+                enable=False,
+                ema_alpha=0.05,
+                success_threshold=0.8,
+                error_threshold=[0.15, 0.15, 0.2],
+                sampling_epsilon=0.05,
+                vx_values=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2],
+                vy_values=[-0.4, -0.2, 0.0, 0.2, 0.4],
+                yaw_values=[-1.0, -0.5, 0.0, 0.5, 1.0],
+                initial_vx_max_index=3,
+                initial_vy_radius=0,
+                initial_yaw_radius=0,
+            ),
         ),
         impl="jax",
         naconmax=4 * 8192,
@@ -188,6 +207,32 @@ class Joystick(go2_base.Go2Env):
         self._student_stage2_goal_min = jp.array(self._config.command_config.student_stage2_goal_min)
         self._student_stage2_goal_max = jp.array(self._config.command_config.student_stage2_goal_max)
         self._student_stage2_goal_b = jp.array(self._config.command_config.student_stage2_goal_b)
+        self._command_resampling_time = float(self._config.command_config.resampling_time_seconds)
+        curriculum_cfg = self._config.command_config.curriculum
+        self._command_curriculum_enabled = bool(curriculum_cfg.enable)
+        self._command_curriculum_ema_alpha = float(curriculum_cfg.ema_alpha)
+        self._command_curriculum_success_threshold = float(curriculum_cfg.success_threshold)
+        self._command_curriculum_error_threshold = jp.array(curriculum_cfg.error_threshold)
+        self._command_curriculum_sampling_epsilon = float(curriculum_cfg.sampling_epsilon)
+        self._curriculum_vx_values = jp.array(curriculum_cfg.vx_values)
+        self._curriculum_vy_values = jp.array(curriculum_cfg.vy_values)
+        self._curriculum_yaw_values = jp.array(curriculum_cfg.yaw_values)
+        self._curriculum_vx_bins = len(curriculum_cfg.vx_values)
+        self._curriculum_vy_bins = len(curriculum_cfg.vy_values)
+        self._curriculum_yaw_bins = len(curriculum_cfg.yaw_values)
+        self._curriculum_vy_center = int(np.argmin(np.abs(np.asarray(curriculum_cfg.vy_values, dtype=np.float32))))
+        self._curriculum_yaw_center = int(np.argmin(np.abs(np.asarray(curriculum_cfg.yaw_values, dtype=np.float32))))
+        self._curriculum_initial_limits = jp.array(
+            [
+                min(max(int(curriculum_cfg.initial_vx_max_index), 0), self._curriculum_vx_bins - 1),
+                min(max(int(curriculum_cfg.initial_vy_radius), 0), self._curriculum_vy_center),
+                min(max(int(curriculum_cfg.initial_yaw_radius), 0), self._curriculum_yaw_center),
+            ],
+            dtype=jp.int32,
+        )
+        self._curriculum_vx_edges = self._bin_edges(self._curriculum_vx_values, minimum=0.0, maximum=1.2)
+        self._curriculum_vy_edges = self._bin_edges(self._curriculum_vy_values, minimum=-0.4, maximum=0.4)
+        self._curriculum_yaw_edges = self._bin_edges(self._curriculum_yaw_values, minimum=-1.0, maximum=1.0)
 
     def reset(self, rng: jax.Array) -> mjx_env.State:
         qpos = self._init_q
@@ -239,16 +284,33 @@ class Joystick(go2_base.Go2Env):
         )
 
         rng, key1, key2 = jax.random.split(rng, 3)
-        time_until_next_cmd = jax.random.exponential(key1) * 5.0
+        time_until_next_cmd = jax.random.exponential(key1) * self._command_resampling_time
         steps_until_next_cmd = jp.round(time_until_next_cmd / self.dt).astype(jp.int32)
-        command = jax.random.uniform(key2, shape=(3,), minval=self._cmd_min, maxval=self._cmd_max)
+        curriculum_limits = self._initial_curriculum_limits()
+        command, command_bin = self._sample_command(
+            key2,
+            jp.zeros(3),
+            curriculum_limits,
+            jp.zeros((self._curriculum_vx_bins, self._curriculum_vy_bins, self._curriculum_yaw_bins)),
+        )
 
         info = {
             "rng": rng,
             "command": command,
+            "command_bin": command_bin,
             "steps_until_next_cmd": steps_until_next_cmd,
             "last_act": jp.zeros(self.mjx_model.nu),
             "last_last_act": jp.zeros(self.mjx_model.nu),
+            "last_dof_vel": jp.zeros(self.mjx_model.nv - 6),
+            "command_error_sum": jp.zeros(3),
+            "command_steps": jp.zeros(()),
+            "command_bin_success": jp.zeros(
+                (self._curriculum_vx_bins, self._curriculum_vy_bins, self._curriculum_yaw_bins)
+            ),
+            "command_bin_count": jp.zeros(
+                (self._curriculum_vx_bins, self._curriculum_vy_bins, self._curriculum_yaw_bins)
+            ),
+            "curriculum_limits": curriculum_limits,
             "feet_air_time": jp.zeros(4),
             "last_contact": jp.zeros(4, dtype=bool),
             "swing_peak": jp.zeros(4),
@@ -263,6 +325,7 @@ class Joystick(go2_base.Go2Env):
 
         metrics = {f"reward/{name}": jp.zeros(()) for name in self._config.reward_config.scales.keys()}
         metrics["swing_peak"] = jp.zeros(())
+        metrics.update(self._command_curriculum_metrics(info))
 
         obs = self._get_obs(data, info)
         reward, done = jp.zeros(2)
@@ -291,19 +354,32 @@ class Joystick(go2_base.Go2Env):
         rewards = self._get_reward(data, action, state.info, state.metrics, done, first_contact, contact)
         rewards = {key: value * self._config.reward_config.scales[key] for key, value in rewards.items()}
         reward = jp.clip(sum(rewards.values()) * self.dt, 0.0, 10000.0)
+        state.info["command_error_sum"] += self._command_tracking_error(data, state.info["command"])
+        state.info["command_steps"] += 1.0
 
         state.info["last_last_act"] = state.info["last_act"]
         state.info["last_act"] = action
+        state.info["last_dof_vel"] = data.qvel[6:]
         state.info["steps_until_next_cmd"] -= 1
         state.info["rng"], key1, key2 = jax.random.split(state.info["rng"], 3)
+        resample_command = state.info["steps_until_next_cmd"] <= 0
+        if self._command_curriculum_enabled and self._command_stage_name == "stage_2":
+            state.info = self._update_command_curriculum(state.info, resample_command | done)
+        new_command, new_command_bin = self._sample_command(
+            key1,
+            state.info["command"],
+            state.info["curriculum_limits"],
+            state.info["command_bin_success"],
+        )
         state.info["command"] = jp.where(
-            state.info["steps_until_next_cmd"] <= 0,
-            self.sample_command(key1, state.info["command"]),
+            resample_command,
+            new_command,
             state.info["command"],
         )
+        state.info["command_bin"] = jp.where(resample_command, new_command_bin, state.info["command_bin"])
         state.info["steps_until_next_cmd"] = jp.where(
-            done | (state.info["steps_until_next_cmd"] <= 0),
-            jp.round(jax.random.exponential(key2) * 5.0 / self.dt).astype(jp.int32),
+            done | resample_command,
+            jp.round(jax.random.exponential(key2) * self._command_resampling_time / self.dt).astype(jp.int32),
             state.info["steps_until_next_cmd"],
         )
 
@@ -314,6 +390,7 @@ class Joystick(go2_base.Go2Env):
         for key, value in rewards.items():
             state.metrics[f"reward/{key}"] = value
         state.metrics["swing_peak"] = jp.mean(state.info["swing_peak"])
+        state.metrics.update(self._command_curriculum_metrics(state.info))
 
         return state.replace(data=data, obs=obs, reward=reward, done=done.astype(reward.dtype))
 
@@ -412,10 +489,14 @@ class Joystick(go2_base.Go2Env):
             "pose": self._reward_pose(data.qpos[7:]),
             "torques": self._cost_torques(data.actuator_force),
             "action_rate": self._cost_action_rate(action, info["last_act"], info["last_last_act"]),
+            "action_smoothness_1": self._cost_action_smoothness_1(action, info["last_act"]),
+            "action_smoothness_2": self._cost_action_smoothness_2(action, info["last_act"], info["last_last_act"]),
+            "dof_acc": self._cost_dof_acc(data.qvel[6:], info["last_dof_vel"]),
             "energy": self._cost_energy(data.qvel[6:], data.actuator_force),
             "feet_slip": self._cost_feet_slip(data, contact, info),
             "feet_clearance": self._cost_feet_clearance(data),
             "feet_height": self._cost_feet_height(info["swing_peak"], first_contact, info),
+            "feet_impact_vel": self._cost_feet_impact_vel(data, first_contact),
             "feet_air_time": self._reward_feet_air_time(info["feet_air_time"], first_contact, info["command"]),
             "dof_pos_limits": self._cost_joint_pos_limits(data.qpos[7:]),
         }
@@ -428,7 +509,7 @@ class Joystick(go2_base.Go2Env):
 
     def _reward_tracking_ang_vel(self, commands: jax.Array, ang_vel: jax.Array) -> jax.Array:
         ang_vel_error = jp.square(commands[2] - ang_vel[2])
-        return jp.exp(-ang_vel_error / self._config.reward_config.tracking_sigma)
+        return jp.exp(-ang_vel_error / self._config.reward_config.tracking_sigma_yaw)
 
     # --- Stability costs ---------------------------------------------------
 
@@ -459,7 +540,7 @@ class Joystick(go2_base.Go2Env):
     # --- Smoothness and efficiency ----------------------------------------
 
     def _cost_torques(self, torques: jax.Array) -> jax.Array:
-        return jp.sqrt(jp.sum(jp.square(torques))) + jp.sum(jp.abs(torques))
+        return jp.sum(jp.square(torques))
 
     def _cost_energy(self, qvel: jax.Array, qfrc_actuator: jax.Array) -> jax.Array:
         return jp.sum(jp.abs(qvel) * jp.abs(qfrc_actuator))
@@ -467,6 +548,17 @@ class Joystick(go2_base.Go2Env):
     def _cost_action_rate(self, act: jax.Array, last_act: jax.Array, last_last_act: jax.Array) -> jax.Array:
         del last_last_act
         return jp.sum(jp.square(act - last_act))
+
+    def _cost_action_smoothness_1(self, act: jax.Array, last_act: jax.Array) -> jax.Array:
+        return jp.sum(jp.square(act - last_act))
+
+    def _cost_action_smoothness_2(
+        self, act: jax.Array, last_act: jax.Array, last_last_act: jax.Array
+    ) -> jax.Array:
+        return jp.sum(jp.square(act - 2.0 * last_act + last_last_act))
+
+    def _cost_dof_acc(self, qvel: jax.Array, last_qvel: jax.Array) -> jax.Array:
+        return jp.sum(jp.square((qvel - last_qvel) / self.dt))
 
     # --- Foot behavior -----------------------------------------------------
 
@@ -489,10 +581,99 @@ class Joystick(go2_base.Go2Env):
         error = swing_peak / self._config.reward_config.max_foot_height - 1.0
         return jp.sum(jp.square(error) * first_contact) * (jp.linalg.norm(info["command"]) > 0.01)
 
+    def _cost_feet_impact_vel(self, data: mjx.Data, first_contact: jax.Array) -> jax.Array:
+        feet_vel = data.sensordata[self._foot_linvel_sensor_adr]
+        return jp.sum(jp.square(jp.minimum(feet_vel[..., 2], 0.0)) * first_contact)
+
     def _reward_feet_air_time(self, air_time: jax.Array, first_contact: jax.Array, commands: jax.Array) -> jax.Array:
         return jp.sum((air_time - 0.1) * first_contact) * (jp.linalg.norm(commands) > 0.01)
 
     # --- Perturbation and command sampling --------------------------------
+
+    def _initial_curriculum_limits(self) -> jax.Array:
+        if self._command_curriculum_enabled and self._command_stage_name == "stage_2":
+            return self._curriculum_initial_limits
+        return jp.array(
+            [self._curriculum_vx_bins - 1, self._curriculum_vy_center, self._curriculum_yaw_center],
+            dtype=jp.int32,
+        )
+
+    @staticmethod
+    def _bin_edges(centers: jax.Array, *, minimum: float, maximum: float) -> jax.Array:
+        mids = 0.5 * (centers[:-1] + centers[1:])
+        return jp.concatenate([jp.array([minimum]), mids, jp.array([maximum])])
+
+    def _command_tracking_error(self, data: mjx.Data, command: jax.Array) -> jax.Array:
+        local_vel = self.get_local_linvel(data)
+        gyro = self.get_gyro(data)
+        return jp.array(
+            [
+                jp.abs(command[0] - local_vel[0]),
+                jp.abs(command[1] - local_vel[1]),
+                jp.abs(command[2] - gyro[2]),
+            ]
+        )
+
+    def _command_curriculum_metrics(self, info: dict[str, Any]) -> dict[str, jax.Array]:
+        success = info["command_bin_success"]
+        count = info["command_bin_count"]
+        touched = count > 0.0
+        mean_success = jp.where(jp.any(touched), jp.sum(success * touched) / jp.maximum(jp.sum(touched), 1.0), 0.0)
+        limits = info["curriculum_limits"].astype(jp.float32)
+        progress_vx = limits[0] / max(float(self._curriculum_vx_bins - 1), 1.0)
+        progress_vy = limits[1] / max(float(self._curriculum_vy_center), 1.0)
+        progress_yaw = limits[2] / max(float(self._curriculum_yaw_center), 1.0)
+        return {
+            "command_curriculum/progress_vx": progress_vx,
+            "command_curriculum/progress_vy": progress_vy,
+            "command_curriculum/progress_yaw": progress_yaw,
+            "command_curriculum/active_bins": (limits[0] + 1.0) * (2.0 * limits[1] + 1.0) * (2.0 * limits[2] + 1.0),
+            "command_curriculum/mean_bin_success": mean_success,
+            "command_curriculum/current_bin_success": success[
+                info["command_bin"][0], info["command_bin"][1], info["command_bin"][2]
+            ],
+        }
+
+    def _update_command_curriculum(self, info: dict[str, Any], should_update: jax.Array) -> dict[str, Any]:
+        command_steps = jp.maximum(info["command_steps"], 1.0)
+        mean_error = info["command_error_sum"] / command_steps
+        command_success = jp.all(mean_error < self._command_curriculum_error_threshold).astype(jp.float32)
+
+        vx_idx, vy_idx, yaw_idx = info["command_bin"]
+        old_success = info["command_bin_success"][vx_idx, vy_idx, yaw_idx]
+        new_success = (
+            (1.0 - self._command_curriculum_ema_alpha) * old_success
+            + self._command_curriculum_ema_alpha * command_success
+        )
+        new_count = info["command_bin_count"][vx_idx, vy_idx, yaw_idx] + 1.0
+
+        info["command_bin_success"] = info["command_bin_success"].at[vx_idx, vy_idx, yaw_idx].set(
+            jp.where(should_update, new_success, old_success)
+        )
+        info["command_bin_count"] = info["command_bin_count"].at[vx_idx, vy_idx, yaw_idx].set(
+            jp.where(should_update, new_count, info["command_bin_count"][vx_idx, vy_idx, yaw_idx])
+        )
+
+        successful_bin = (new_success >= self._command_curriculum_success_threshold) | (command_success > 0.0)
+        limits = info["curriculum_limits"]
+        vx_frontier = vx_idx >= limits[0]
+        vy_frontier = jp.abs(vy_idx - self._curriculum_vy_center) >= limits[1]
+        yaw_frontier = jp.abs(yaw_idx - self._curriculum_yaw_center) >= limits[2]
+        expand_vx = (successful_bin & vx_frontier).astype(jp.int32)
+        expand_vy = (successful_bin & vy_frontier).astype(jp.int32)
+        expand_yaw = (successful_bin & yaw_frontier).astype(jp.int32)
+        expanded_limits = jp.array(
+            [
+                jp.minimum(limits[0] + expand_vx, self._curriculum_vx_bins - 1),
+                jp.minimum(limits[1] + expand_vy, self._curriculum_vy_center),
+                jp.minimum(limits[2] + expand_yaw, self._curriculum_yaw_center),
+            ],
+            dtype=jp.int32,
+        )
+        info["curriculum_limits"] = jp.where(should_update, expanded_limits, limits)
+        info["command_error_sum"] = jp.where(should_update, jp.zeros(3), info["command_error_sum"])
+        info["command_steps"] = jp.where(should_update, jp.zeros(()), info["command_steps"])
+        return info
 
     def _maybe_apply_perturbation(self, state: mjx_env.State) -> mjx_env.State:
         def random_direction(rng: jax.Array) -> jax.Array:
@@ -544,34 +725,118 @@ class Joystick(go2_base.Go2Env):
             state,
         )
 
-    def _command_sampling_profile(self, current_command: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
+    def _command_sampling_profile(
+        self, current_command: jax.Array, curriculum_limits: jax.Array
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
         if self._command_stage_name == "stage_2":
-            return self._student_stage2_sampling_profile(current_command)
+            return self._student_stage2_sampling_profile(current_command, curriculum_limits)
         return self._cmd_min, self._cmd_max, self._cmd_b
 
-    def _student_stage2_sampling_profile(self, current_command: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
-        """Homework seam for stage_2 command sampling.
+    def _student_stage2_sampling_profile(
+        self, current_command: jax.Array, curriculum_limits: jax.Array
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
+        """Walk-these-ways-style adaptive stage_2 command curriculum.
 
-        TODO(student): keep stage_1 as the fixed forward-only baseline, and use
-        stage_2 to expand the command distribution beyond `{stand, +vx}`.
-
-        The current baseline intentionally returns the same forward-only profile
-        as stage_1, so the public benchmark still exposes missing lateral / yaw
-        capability. A good stage_2 implementation should eventually use the
-        stored `self._student_stage2_goal_*` values below.
-
-        Suggested approach:
-        1. keep the baseline forward-only ranges as the starting point
-        2. widen the stage_2 sampling range toward `self._student_stage2_goal_*`
-        3. increase the probability of non-zero `vy` and `yaw_rate` commands
+        Continuous fallback for callers that do not use the discrete 3D grid.
         """
         del current_command
-        return self._cmd_min, self._cmd_max, self._cmd_b
+        limits = curriculum_limits.astype(jp.float32)
+        progress = jp.array(
+            [
+                limits[0] / max(float(self._curriculum_vx_bins - 1), 1.0),
+                limits[1] / max(float(self._curriculum_vy_center), 1.0),
+                limits[2] / max(float(self._curriculum_yaw_center), 1.0),
+            ]
+        )
+        cmd_min = self._cmd_min + progress * (self._student_stage2_goal_min - self._cmd_min)
+        cmd_max = self._cmd_max + progress * (self._student_stage2_goal_max - self._cmd_max)
+        cmd_keep_prob = self._cmd_b + progress * (self._student_stage2_goal_b - self._cmd_b)
+        return cmd_min, cmd_max, cmd_keep_prob
 
-    def sample_command(self, rng: jax.Array, current_command: jax.Array) -> jax.Array:
+    def _command_to_bins(self, command: jax.Array) -> jax.Array:
+        span = jp.maximum(self._student_stage2_goal_max - self._student_stage2_goal_min, 1e-6)
+        normalized = (command - self._student_stage2_goal_min) / span
+        bins = jp.floor(
+            jp.clip(normalized, 0.0, 1.0 - 1e-6)
+            * jp.array([self._curriculum_vx_bins, self._curriculum_vy_bins, self._curriculum_yaw_bins])
+        )
+        return bins.astype(jp.int32)
+
+    def _active_curriculum_mask(self, limits: jax.Array) -> jax.Array:
+        vx_idx = jp.arange(self._curriculum_vx_bins)[:, None, None]
+        vy_idx = jp.arange(self._curriculum_vy_bins)[None, :, None]
+        yaw_idx = jp.arange(self._curriculum_yaw_bins)[None, None, :]
+        return (
+            (vx_idx <= limits[0])
+            & (jp.abs(vy_idx - self._curriculum_vy_center) <= limits[1])
+            & (jp.abs(yaw_idx - self._curriculum_yaw_center) <= limits[2])
+        )
+
+    def _sample_curriculum_cell(self, rng: jax.Array, limits: jax.Array, success: jax.Array) -> jax.Array:
+        active = self._active_curriculum_mask(limits)
+        weights = ((1.0 - success) + self._command_curriculum_sampling_epsilon) * active
+        flat_weights = weights.reshape((-1,))
+        flat_weights = flat_weights / jp.maximum(jp.sum(flat_weights), 1e-6)
+        flat_idx = jax.random.choice(rng, flat_weights.shape[0], p=flat_weights)
+        vx_idx = flat_idx // (self._curriculum_vy_bins * self._curriculum_yaw_bins)
+        rem = flat_idx - vx_idx * self._curriculum_vy_bins * self._curriculum_yaw_bins
+        vy_idx = rem // self._curriculum_yaw_bins
+        yaw_idx = rem - vy_idx * self._curriculum_yaw_bins
+        return jp.array([vx_idx, vy_idx, yaw_idx], dtype=jp.int32)
+
+    def _sample_command_in_cell(self, rng: jax.Array, bin_idx: jax.Array) -> jax.Array:
+        x_rng, y_rng, yaw_rng = jax.random.split(rng, 3)
+        vx_idx, vy_idx, yaw_idx = bin_idx
+        return jp.array(
+            [
+                jax.random.uniform(
+                    x_rng,
+                    (),
+                    minval=self._curriculum_vx_edges[vx_idx],
+                    maxval=self._curriculum_vx_edges[vx_idx + 1],
+                ),
+                jax.random.uniform(
+                    y_rng,
+                    (),
+                    minval=self._curriculum_vy_edges[vy_idx],
+                    maxval=self._curriculum_vy_edges[vy_idx + 1],
+                ),
+                jax.random.uniform(
+                    yaw_rng,
+                    (),
+                    minval=self._curriculum_yaw_edges[yaw_idx],
+                    maxval=self._curriculum_yaw_edges[yaw_idx + 1],
+                ),
+            ]
+        )
+
+    def _sample_command(
+        self,
+        rng: jax.Array,
+        current_command: jax.Array,
+        curriculum_limits: jax.Array,
+        command_bin_success: jax.Array,
+    ) -> tuple[jax.Array, jax.Array]:
+        if self._command_curriculum_enabled and self._command_stage_name == "stage_2":
+            cell_rng, command_rng = jax.random.split(rng)
+            limits = curriculum_limits.astype(jp.int32)
+            bin_idx = self._sample_curriculum_cell(cell_rng, limits, command_bin_success)
+            command = self._sample_command_in_cell(command_rng, bin_idx)
+            return command, bin_idx
+
         rng, y_rng, w_rng, z_rng = jax.random.split(rng, 4)
-        cmd_min, cmd_max, cmd_keep_prob = self._command_sampling_profile(current_command)
+        cmd_min, cmd_max, cmd_keep_prob = self._command_sampling_profile(current_command, curriculum_limits)
         candidate = jax.random.uniform(y_rng, shape=(3,), minval=cmd_min, maxval=cmd_max)
         active_mask = jax.random.bernoulli(z_rng, cmd_keep_prob, shape=(3,))
         blend_mask = jax.random.bernoulli(w_rng, 0.5, shape=(3,))
-        return current_command - blend_mask * (current_command - candidate * active_mask)
+        command = current_command - blend_mask * (current_command - candidate * active_mask)
+        return command, self._command_to_bins(command)
+
+    def sample_command(self, rng: jax.Array, current_command: jax.Array) -> jax.Array:
+        command, _ = self._sample_command(
+            rng,
+            current_command,
+            self._initial_curriculum_limits(),
+            jp.zeros((self._curriculum_vx_bins, self._curriculum_vy_bins, self._curriculum_yaw_bins)),
+        )
+        return command
