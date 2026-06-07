@@ -24,7 +24,7 @@ from course_common import DEFAULT_CONFIG_PATH, lazy_import_stack, load_json, set
 from run_track_bonus import _make_env, _validate_checkpoint, rollout
 from test_policy import load_policy_with_workaround
 from track_bonus.official_track import official_track, official_track_config
-from track_bonus.planner import StarterPlannerConfig, StarterTrackPlanner, make_zero_residual_weights
+from track_bonus.planner import StarterPlannerConfig, StarterTrackPlanner, load_residual_weights, make_zero_residual_weights
 from track_bonus.scoring import compute_track_bonus_metrics, score_track_bonus
 
 
@@ -46,6 +46,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-samples", type=int, default=1, help="Number of start positions per candidate.")
     parser.add_argument("--sigma", type=float, default=0.035, help="Initial parameter search stddev.")
     parser.add_argument("--min-sigma", type=float, default=0.006)
+    parser.add_argument("--init-planner-config", type=Path, default=None, help="Existing residual planner config to fine-tune.")
+    parser.add_argument("--base-speed", type=float, default=0.55, help="Analytic baseline speed used by the residual planner.")
+    parser.add_argument("--residual-vx-scale", type=float, default=0.65)
+    parser.add_argument("--residual-vy-scale", type=float, default=0.22)
+    parser.add_argument("--residual-yaw-scale", type=float, default=0.65)
+    parser.add_argument("--target-finish-seconds", type=float, default=260.0)
+    parser.add_argument("--target-progress-speed", type=float, default=0.72)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--force-cpu", action="store_true")
     return parser.parse_args()
@@ -94,7 +101,15 @@ def command_stats(commands: np.ndarray) -> dict[str, Any]:
     }
 
 
-def rollout_reward(metrics: dict[str, Any], commands: np.ndarray) -> tuple[float, dict[str, float]]:
+def rollout_reward(
+    metrics: dict[str, Any],
+    commands: np.ndarray,
+    *,
+    track_length_m: float,
+    eval_seconds: float,
+    target_finish_seconds: float,
+    target_progress_speed: float,
+) -> tuple[float, dict[str, float]]:
     stats = command_stats(commands)
     smoothness = float(stats.get("smoothness_cost", 0.0))
     forward_progress = float(metrics["valid_distance_m"])
@@ -102,11 +117,35 @@ def rollout_reward(metrics: dict[str, Any], commands: np.ndarray) -> tuple[float
     fall_penalty = 120.0 if metrics["fall"] else 0.0
     lateral_penalty = 6.0 * float(metrics["rms_lateral_error"]) + 2.0 * float(metrics["max_lateral_error"])
     smoothness_penalty = 8.0 * smoothness
-    finish_bonus = 40.0 if metrics["finish_time"] is not None else 0.0
-    reward = forward_progress + finish_bonus - boundary_penalty - fall_penalty - lateral_penalty - smoothness_penalty
+    mean_progress_speed = float(metrics["mean_progress_speed"])
+    finish_time = metrics["finish_time"]
+    if finish_time is None:
+        remaining_distance = max(0.0, float(track_length_m) - forward_progress)
+        finish_bonus = 0.0
+        unfinished_penalty = 80.0 + 1.25 * remaining_distance
+    else:
+        finish_bonus = 240.0 + 1.5 * max(0.0, float(target_finish_seconds) - float(finish_time))
+        unfinished_penalty = 0.0
+    speed_error = float(target_progress_speed) - mean_progress_speed
+    speed_penalty = 130.0 * max(0.0, speed_error)
+    speed_bonus = 70.0 * max(0.0, mean_progress_speed - float(target_progress_speed))
+    reward = (
+        forward_progress
+        + finish_bonus
+        + speed_bonus
+        - unfinished_penalty
+        - speed_penalty
+        - boundary_penalty
+        - fall_penalty
+        - lateral_penalty
+        - smoothness_penalty
+    )
     terms = {
         "forward_progress": forward_progress,
         "finish_bonus": finish_bonus,
+        "unfinished_penalty": unfinished_penalty,
+        "speed_bonus": speed_bonus,
+        "speed_penalty": speed_penalty,
         "boundary_violation_penalty": boundary_penalty,
         "fall_penalty": fall_penalty,
         "lateral_error_penalty": lateral_penalty,
@@ -124,9 +163,12 @@ def evaluate_candidate(
     env: Any,
     policy: Any,
     eval_steps: int,
+    eval_seconds: float,
     starts: list[float],
     seed: int,
     force_cpu: bool,
+    target_finish_seconds: float,
+    target_progress_speed: float,
 ) -> dict[str, Any]:
     weights = unflatten_weights(vector, template)
     planner = StarterTrackPlanner(base_config, residual_weights=weights)
@@ -148,7 +190,14 @@ def evaluate_candidate(
         )
         metrics = compute_track_bonus_metrics(result, track)
         scores = score_track_bonus(metrics)
-        reward, reward_terms = rollout_reward(metrics, result["command"])
+        reward, reward_terms = rollout_reward(
+            metrics,
+            result["command"],
+            track_length_m=float(track.length_m),
+            eval_seconds=float(eval_seconds),
+            target_finish_seconds=float(target_finish_seconds),
+            target_progress_speed=float(target_progress_speed),
+        )
         rewards.append(reward)
         composite_scores.append(float(scores["composite_score"]))
         episode_records.append(
@@ -168,12 +217,31 @@ def evaluate_candidate(
     }
 
 
-def make_residual_config(base: StarterPlannerConfig, weights_path: str) -> StarterPlannerConfig:
+def make_residual_config(
+    base: StarterPlannerConfig,
+    weights_path: str,
+    *,
+    base_speed: float,
+    residual_scales: tuple[float, float, float],
+) -> StarterPlannerConfig:
     values = base.to_dict()
     values["planner_type"] = "residual_mlp"
     values["learned_weights_path"] = weights_path
+    values["speed_mps"] = float(base_speed)
+    values["min_speed_mps"] = min(float(values.get("min_speed_mps", 0.12)), float(base_speed))
+    values["residual_scales"] = list(residual_scales)
     values.update(official_track_config())
     return StarterPlannerConfig.from_dict(values)
+
+
+def load_initial_weights(config_path: Path) -> tuple[StarterPlannerConfig, dict[str, np.ndarray]]:
+    config = StarterPlannerConfig.load(config_path)
+    if config.learned_weights_path is None:
+        raise ValueError(f"{config_path} does not define learned_weights_path.")
+    weights_path = Path(config.learned_weights_path)
+    if not weights_path.is_absolute():
+        weights_path = config_path.resolve().parent / weights_path
+    return config, load_residual_weights(weights_path)
 
 
 def main() -> None:
@@ -200,10 +268,24 @@ def main() -> None:
     if not args.force_cpu:
         policy = stack["jax"].jit(policy)
 
-    base_config = StarterPlannerConfig.load(args.base_planner_config)
-    residual_config = make_residual_config(base_config, "residual_weights.npz")
     template = make_zero_residual_weights()
-    mean = flatten_weights(template)
+    if args.init_planner_config is None:
+        base_config = StarterPlannerConfig.load(args.base_planner_config)
+        initial_weights = template
+    else:
+        base_config, initial_weights = load_initial_weights(args.init_planner_config)
+
+    residual_config = make_residual_config(
+        base_config,
+        "residual_weights.npz",
+        base_speed=float(args.base_speed),
+        residual_scales=(
+            float(args.residual_vx_scale),
+            float(args.residual_vy_scale),
+            float(args.residual_yaw_scale),
+        ),
+    )
+    mean = flatten_weights(initial_weights)
     sigma = np.full(mean.shape, float(args.sigma), dtype=np.float32)
     best_vector = mean.copy()
     best_eval = evaluate_candidate(
@@ -214,9 +296,12 @@ def main() -> None:
         env=env,
         policy=policy,
         eval_steps=eval_steps,
+        eval_seconds=float(args.eval_seconds),
         starts=starts,
         seed=int(args.seed),
         force_cpu=bool(args.force_cpu),
+        target_finish_seconds=float(args.target_finish_seconds),
+        target_progress_speed=float(args.target_progress_speed),
     )
     best_reward = float(best_eval["reward"])
     save_weights(output_dir / "residual_weights.npz", unflatten_weights(best_vector, template))
@@ -241,9 +326,12 @@ def main() -> None:
                     env=env,
                     policy=policy,
                     eval_steps=eval_steps,
+                    eval_seconds=float(args.eval_seconds),
                     starts=starts,
                     seed=int(args.seed) + 100_000 * iteration + candidate_idx,
                     force_cpu=bool(args.force_cpu),
+                    target_finish_seconds=float(args.target_finish_seconds),
+                    target_progress_speed=float(args.target_progress_speed),
                 )
                 record = {
                     "iteration": iteration,
@@ -280,6 +368,8 @@ def main() -> None:
                 "iteration_best_reward": candidates[0][0],
                 "mean_reward": float(np.mean([item[0] for item in candidates])),
                 "sigma_mean": float(np.mean(sigma)),
+                "target_finish_seconds": float(args.target_finish_seconds),
+                "target_progress_speed": float(args.target_progress_speed),
                 "best_planner_config": str(output_dir / "planner_config.json"),
                 "best_weights": str(output_dir / "residual_weights.npz"),
             }
