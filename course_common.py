@@ -204,6 +204,10 @@ def apply_stage_config(env_cfg: Any, ppo_cfg: Any, config: dict[str, Any], stage
         env_cfg.reward_config.tracking_sigma_yaw = float(reward_params["tracking_sigma_yaw"])
     if "max_foot_height" in reward_params:
         env_cfg.reward_config.max_foot_height = float(reward_params["max_foot_height"])
+    if "base_height_target" in reward_params:
+        env_cfg.reward_config.base_height_target = float(reward_params["base_height_target"])
+    if "min_support_feet" in reward_params:
+        env_cfg.reward_config.min_support_feet = float(reward_params["min_support_feet"])
 
     stage_steps_key = f"{stage_name}_num_timesteps"
     ppo_cfg.num_timesteps = int(runtime_overrides.get(stage_steps_key, stage_cfg["num_timesteps"]))

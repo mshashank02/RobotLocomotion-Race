@@ -73,6 +73,8 @@ def default_config() -> config_dict.ConfigDict:
                 lin_vel_z=-0.5,
                 ang_vel_xy=-0.05,
                 orientation=-5.0,
+                base_height=-0.0,
+                support_contact=-0.0,
                 dof_pos_limits=-1.0,
                 pose=0.5,
                 termination=-1.0,
@@ -94,6 +96,8 @@ def default_config() -> config_dict.ConfigDict:
             tracking_sigma=0.25,
             tracking_sigma_yaw=0.25,
             max_foot_height=0.1,
+            base_height_target=0.32,
+            min_support_feet=2.0,
         ),
         pert_config=config_dict.create(
             enable=False,
@@ -490,6 +494,8 @@ class Joystick(go2_base.Go2Env):
             "lin_vel_z": self._cost_lin_vel_z(self.get_global_linvel(data)),
             "ang_vel_xy": self._cost_ang_vel_xy(self.get_global_angvel(data)),
             "orientation": self._cost_orientation(self.get_upvector(data)),
+            "base_height": self._cost_base_height(data.qpos[2]),
+            "support_contact": self._cost_support_contact(contact, info["command"]),
             "stand_still": self._cost_stand_still(info["command"], data.qpos[7:]),
             "termination": self._cost_termination(done),
             "pose": self._reward_pose(data.qpos[7:]),
@@ -535,6 +541,15 @@ class Joystick(go2_base.Go2Env):
     def _cost_orientation(self, torso_zaxis: jax.Array) -> jax.Array:
         return jp.sum(jp.square(torso_zaxis[:2]))
 
+    def _cost_base_height(self, base_height: jax.Array) -> jax.Array:
+        return jp.square(base_height - self._config.reward_config.base_height_target)
+
+    def _cost_support_contact(self, contact: jax.Array, commands: jax.Array) -> jax.Array:
+        moving = jp.linalg.norm(commands) > 0.01
+        contact_count = jp.sum(contact.astype(jp.float32))
+        missing_support = jp.maximum(self._config.reward_config.min_support_feet - contact_count, 0.0)
+        return jp.square(missing_support) * moving
+
     def _cost_joint_pos_limits(self, qpos: jax.Array) -> jax.Array:
         out_of_limits = -jp.clip(qpos - self._soft_lowers, None, 0.0)
         out_of_limits += jp.clip(qpos - self._soft_uppers, 0.0, None)
@@ -553,7 +568,7 @@ class Joystick(go2_base.Go2Env):
     # --- Smoothness and efficiency ----------------------------------------
 
     def _cost_torques(self, torques: jax.Array) -> jax.Array:
-        return jp.sum(jp.square(torques))
+        return jp.sqrt(jp.sum(jp.square(torques))) + jp.sum(jp.abs(torques))
 
     def _cost_energy(self, qvel: jax.Array, qfrc_actuator: jax.Array) -> jax.Array:
         return jp.sum(jp.abs(qvel) * jp.abs(qfrc_actuator))
