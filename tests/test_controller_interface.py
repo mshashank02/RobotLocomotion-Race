@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -11,7 +13,7 @@ from track_bonus.controller_interface import (
     build_track_controller_observation,
     validate_high_level_command,
 )
-from track_bonus.planner import StarterPlannerConfig, StarterTrackPlanner
+from track_bonus.planner import StarterPlannerConfig, StarterTrackPlanner, make_zero_residual_weights
 
 
 def test_validate_high_level_command_keeps_values_and_validates_shape() -> None:
@@ -56,6 +58,36 @@ def test_planner_entry_point_uses_track_observation() -> None:
     command = planner.command(obs, t=1.0)
     assert command.shape == (3,)
     assert np.all(np.isfinite(command))
+
+
+def test_residual_planner_loads_weights_and_preserves_command_contract(tmp_path) -> None:
+    weights = make_zero_residual_weights()
+    weights["b3"] = np.asarray([1.0, -1.0, 1.0], dtype=np.float32)
+    np.savez(tmp_path / "residual_weights.npz", **weights)
+    config = StarterPlannerConfig(
+        planner_type="residual_mlp",
+        stand_seconds=0.0,
+        learned_weights_path="residual_weights.npz",
+        residual_scales=(0.1, 0.1, 0.1),
+        max_command_yaw_rate_radps=1.0,
+    )
+    config_path = tmp_path / "planner_config.json"
+    config_path.write_text(json.dumps(config.to_dict()), encoding="utf-8")
+
+    planner = StarterTrackPlanner.load(config_path)
+    track = StandardOvalTrack()
+    xy, heading, _ = track.centerline_pose(5.0)
+    qpos = np.zeros(19, dtype=np.float32)
+    qpos[:2] = xy
+    qpos[3:7] = np.asarray([np.cos(0.5 * heading), 0.0, 0.0, np.sin(0.5 * heading)], dtype=np.float32)
+    obs = build_track_controller_observation(qpos=qpos, track=track)
+    command = planner.command(obs, t=1.0)
+
+    assert command.shape == (3,)
+    assert np.all(np.isfinite(command))
+    assert 0.0 <= command[0] <= 1.2
+    assert -0.4 <= command[1] <= 0.4
+    assert -1.0 <= command[2] <= 1.0
 
 
 def test_track_scene_compiles_single_dog_when_assets_are_available() -> None:

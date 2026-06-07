@@ -36,11 +36,24 @@ class StarterPlannerConfig:
     k_lateral: float = 0.08
     heading_slowdown: float = 0.45
     stand_seconds: float = 1.0
+    learned_weights_path: str | None = None
+    residual_scales: tuple[float, float, float] = (0.35, 0.18, 0.45)
+    min_vx_mps: float = 0.0
+    max_vx_mps: float = 1.2
+    min_vy_mps: float = -0.4
+    max_vy_mps: float = 0.4
+    min_yaw_rate_radps: float = -1.0
+    max_command_yaw_rate_radps: float = 1.0
+    track_length_m: float = 200.0
+    turn_radius_m: float = 18.25
+    half_width_m: float = 2.0
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "StarterPlannerConfig":
         valid = set(cls.__dataclass_fields__.keys())
         values = {key: payload[key] for key in valid if key in payload}
+        if "residual_scales" in values:
+            values["residual_scales"] = tuple(float(value) for value in values["residual_scales"])
         return cls(**values)
 
     @classmethod
@@ -58,7 +71,47 @@ class StarterPlannerConfig:
             "k_lateral": self.k_lateral,
             "heading_slowdown": self.heading_slowdown,
             "stand_seconds": self.stand_seconds,
+            "learned_weights_path": self.learned_weights_path,
+            "residual_scales": list(self.residual_scales),
+            "min_vx_mps": self.min_vx_mps,
+            "max_vx_mps": self.max_vx_mps,
+            "min_vy_mps": self.min_vy_mps,
+            "max_vy_mps": self.max_vy_mps,
+            "min_yaw_rate_radps": self.min_yaw_rate_radps,
+            "max_command_yaw_rate_radps": self.max_command_yaw_rate_radps,
+            "track_length_m": self.track_length_m,
+            "turn_radius_m": self.turn_radius_m,
+            "half_width_m": self.half_width_m,
         }
+
+
+def make_zero_residual_weights() -> dict[str, np.ndarray]:
+    """Return MLP parameters for a zero residual policy."""
+    return {
+        "w1": np.zeros((5, 64), dtype=np.float32),
+        "b1": np.zeros(64, dtype=np.float32),
+        "w2": np.zeros((64, 64), dtype=np.float32),
+        "b2": np.zeros(64, dtype=np.float32),
+        "w3": np.zeros((64, 3), dtype=np.float32),
+        "b3": np.zeros(3, dtype=np.float32),
+    }
+
+
+def load_residual_weights(path: Path) -> dict[str, np.ndarray]:
+    payload = np.load(path)
+    weights = {key: np.asarray(payload[key], dtype=np.float32) for key in ("w1", "b1", "w2", "b2", "w3", "b3")}
+    expected_shapes = {
+        "w1": (5, 64),
+        "b1": (64,),
+        "w2": (64, 64),
+        "b2": (64,),
+        "w3": (64, 3),
+        "b3": (3,),
+    }
+    for key, shape in expected_shapes.items():
+        if weights[key].shape != shape:
+            raise ValueError(f"Residual weight {key!r} must have shape {shape}, got {weights[key].shape}.")
+    return weights
 
 
 class StarterTrackPlanner:
@@ -69,15 +122,27 @@ class StarterTrackPlanner:
     higher-level policy that produces the same command vector.
     """
 
-    def __init__(self, config: StarterPlannerConfig) -> None:
-        if config.planner_type != "starter_pd":
+    def __init__(self, config: StarterPlannerConfig, residual_weights: dict[str, np.ndarray] | None = None) -> None:
+        if config.planner_type not in {"starter_pd", "residual_mlp"}:
             raise ValueError(f"Unsupported planner_type: {config.planner_type!r}")
         self.config = config
         self.track: StandardOvalTrack = official_track()
+        self._residual_weights = residual_weights
+        if self.config.planner_type == "residual_mlp" and self._residual_weights is None:
+            if self.config.learned_weights_path is None:
+                self._residual_weights = make_zero_residual_weights()
+            else:
+                self._residual_weights = load_residual_weights(Path(self.config.learned_weights_path))
 
     @classmethod
     def load(cls, path: Path) -> "StarterTrackPlanner":
-        return cls(StarterPlannerConfig.load(path))
+        config = StarterPlannerConfig.load(path)
+        if config.learned_weights_path is None:
+            return cls(config)
+        weights_path = Path(config.learned_weights_path)
+        if not weights_path.is_absolute():
+            weights_path = path.resolve().parent / weights_path
+        return cls(config, residual_weights=load_residual_weights(weights_path))
 
     def command(self, obs: TrackControllerObservation, t: float) -> np.ndarray:
         if t < self.config.stand_seconds:
@@ -85,6 +150,21 @@ class StarterTrackPlanner:
         return self.command_from_observation(obs)
 
     def command_from_observation(self, obs: TrackControllerObservation) -> np.ndarray:
+        base_command = self.base_command_from_observation(obs)
+        if self.config.planner_type == "starter_pd":
+            return base_command
+        delta = self._residual_from_observation(obs)
+        command = base_command + delta
+        return np.asarray(
+            [
+                np.clip(command[0], self.config.min_vx_mps, self.config.max_vx_mps),
+                np.clip(command[1], self.config.min_vy_mps, self.config.max_vy_mps),
+                np.clip(command[2], self.config.min_yaw_rate_radps, self.config.max_command_yaw_rate_radps),
+            ],
+            dtype=np.float32,
+        )
+
+    def base_command_from_observation(self, obs: TrackControllerObservation) -> np.ndarray:
         lateral_error = float(obs.lateral_error_norm) * float(self.track.half_width_m)
         lateral_bias = math.atan2(
             float(self.config.k_lateral) * lateral_error,
@@ -110,3 +190,20 @@ class StarterTrackPlanner:
             float(self.config.max_yaw_rate_radps),
         )
         return np.asarray([vx, vy, yaw_rate], dtype=np.float32)
+
+    def _residual_from_observation(self, obs: TrackControllerObservation) -> np.ndarray:
+        if self._residual_weights is None:
+            return np.zeros(3, dtype=np.float32)
+        x = obs.as_array().astype(np.float32)
+        # Normalize the official 5D observation while preserving the evaluator interface.
+        x = x.copy()
+        x[0] = 2.0 * x[0] - 1.0
+        x[1] = np.clip(x[1], -2.0, 2.0)
+        x[2] = np.clip(x[2], -1.0, 1.0)
+        x[3] = np.clip(x[3] / math.pi, -1.0, 1.0)
+        x[4] = np.clip(x[4], -1.0, 1.0)
+        w = self._residual_weights
+        h1 = np.tanh(x @ w["w1"] + w["b1"])
+        h2 = np.tanh(h1 @ w["w2"] + w["b2"])
+        raw = np.tanh(h2 @ w["w3"] + w["b3"])
+        return (raw * np.asarray(self.config.residual_scales, dtype=np.float32)).astype(np.float32)
