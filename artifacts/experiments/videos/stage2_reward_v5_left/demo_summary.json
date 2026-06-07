@@ -1,0 +1,35 @@
+{
+  "video_path": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/videos/stage2_reward_v5_left/demo.mp4",
+  "rollout_npz": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/videos/stage2_reward_v5_left/rollout_public_eval.npz",
+  "num_steps_simulated": 500,
+  "terminated_early": false,
+  "done_step": null,
+  "x_distance_m": 0.4443087577819824,
+  "y_offset_m": -2.362980842590332,
+  "final_base_height_m": 0.3181211054325104,
+  "mean_command_vx": 0.0,
+  "mean_measured_vx": 0.02113235928118229,
+  "mean_abs_yaw_error": 0.08923731744289398,
+  "demo_segments": [
+    [
+      0.0,
+      0.3,
+      0.0
+    ],
+    [
+      0.0,
+      0.3,
+      0.0
+    ],
+    [
+      0.0,
+      0.3,
+      0.0
+    ],
+    [
+      0.0,
+      0.3,
+      0.0
+    ]
+  ]
+}
