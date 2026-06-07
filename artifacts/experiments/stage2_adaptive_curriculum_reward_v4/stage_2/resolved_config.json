@@ -1,0 +1,182 @@
+{
+  "stage_name": "stage_2",
+  "env_name": "Go2JoystickFlatTerrain",
+  "backend_impl": "jax",
+  "restore_checkpoint_path": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/stage1_forward_motion_reward_v4/best_checkpoint",
+  "resolved_env_config": {
+    "Kd": 0.5,
+    "Kp": 35.0,
+    "action_repeat": 1,
+    "action_scale": 0.5,
+    "command_config": {
+      "b": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "curriculum": {
+        "ema_alpha": 0.1,
+        "enable": true,
+        "error_threshold": [
+          0.15,
+          0.15,
+          0.2
+        ],
+        "initial_vx_max_index": 3,
+        "initial_vy_radius": 0,
+        "initial_yaw_radius": 0,
+        "min_bin_updates_before_expand": 4,
+        "sampling_epsilon": 0.08,
+        "success_threshold": 0.55,
+        "vx_values": [
+          0.0,
+          0.2,
+          0.4,
+          0.6,
+          0.8,
+          1.0,
+          1.2
+        ],
+        "vy_values": [
+          -0.4,
+          -0.2,
+          0.0,
+          0.2,
+          0.4
+        ],
+        "yaw_values": [
+          -1.0,
+          -0.5,
+          0.0,
+          0.5,
+          1.0
+        ]
+      },
+      "max": [
+        0.8,
+        0.0,
+        0.0
+      ],
+      "min": [
+        0.4,
+        0.0,
+        0.0
+      ],
+      "resampling_time_seconds": 10.0,
+      "stage_name": "stage_2",
+      "student_stage2_goal_b": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "student_stage2_goal_max": [
+        1.2,
+        0.4,
+        1.0
+      ],
+      "student_stage2_goal_min": [
+        0.0,
+        -0.4,
+        -1.0
+      ]
+    },
+    "ctrl_dt": 0.02,
+    "episode_length": 1000,
+    "history_len": 1,
+    "impl": "jax",
+    "naconmax": 32768,
+    "njmax": 40,
+    "noise_config": {
+      "level": 1.0,
+      "scales": {
+        "gravity": 0.05,
+        "gyro": 0.2,
+        "joint_pos": 0.03,
+        "joint_vel": 1.5,
+        "linvel": 0.1
+      }
+    },
+    "pert_config": {
+      "enable": false,
+      "kick_durations": [
+        0.05,
+        0.2
+      ],
+      "kick_wait_times": [
+        1.0,
+        3.0
+      ],
+      "velocity_kick": [
+        0.0,
+        3.0
+      ]
+    },
+    "reward_config": {
+      "base_height_target": 0.32,
+      "max_foot_height": 0.1,
+      "min_support_feet": 2.0,
+      "scales": {
+        "action_rate": -0.01,
+        "action_smoothness_1": -0.001,
+        "action_smoothness_2": -0.001,
+        "ang_vel_xy": -0.05,
+        "base_height": -10.0,
+        "command_tracking_error": -0.3,
+        "dof_acc": -1e-08,
+        "dof_pos_limits": -1.0,
+        "energy": -0.001,
+        "feet_air_time": 0.02,
+        "feet_clearance": -2.0,
+        "feet_height": -0.2,
+        "feet_impact_vel": -0.08,
+        "feet_slip": -0.25,
+        "lin_vel_z": -1.5,
+        "orientation": -5.0,
+        "pose": 0.5,
+        "stand_still": -1.0,
+        "support_contact": -0.5,
+        "termination": -25.0,
+        "torques": -0.0002,
+        "tracking_ang_vel": 2.0,
+        "tracking_lin_vel": 5.0
+      },
+      "tracking_sigma": 0.25,
+      "tracking_sigma_yaw": 0.25
+    },
+    "sim_dt": 0.004,
+    "soft_joint_pos_limit_factor": 0.95
+  },
+  "resolved_ppo_config": {
+    "action_repeat": 1,
+    "batch_size": 256,
+    "discounting": 0.97,
+    "entropy_cost": 0.01,
+    "episode_length": 1000,
+    "learning_rate": 0.0003,
+    "max_grad_norm": 1.0,
+    "network_factory": {
+      "policy_hidden_layer_sizes": [
+        512,
+        256,
+        128
+      ],
+      "policy_obs_key": "state",
+      "value_hidden_layer_sizes": [
+        512,
+        256,
+        128
+      ],
+      "value_obs_key": "privileged_state"
+    },
+    "normalize_observations": true,
+    "num_envs": 4096,
+    "num_eval_envs": 128,
+    "num_evals": 5,
+    "num_minibatches": 32,
+    "num_resets_per_eval": 10,
+    "num_timesteps": 5000000,
+    "num_updates_per_batch": 4,
+    "reward_scaling": 1.0,
+    "unroll_length": 20
+  }
+}
