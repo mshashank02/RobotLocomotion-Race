@@ -1,0 +1,26 @@
+{
+  "team_name": "MorldWodels",
+  "track2_option": "leaderboard",
+  "low_level_checkpoint_dir": "artifacts/experiments/stage2_adaptive_curriculum_reward_v5/best_checkpoint",
+  "low_level_config": "artifacts/experiments/stage2_adaptive_curriculum_reward_v5/config_resolved.json",
+  "high_level_planner_type": "learned_residual_mlp",
+  "planner_interface": "official 5D track observation -> [vx_mps, vy_mps, yaw_rate_radps]",
+  "planner_config": "artifacts/residual_planner_train_v2/planner_config.json",
+  "planner_weights": "artifacts/residual_planner_train_v2/residual_weights.npz",
+  "planner_code": "track_bonus/planner.py",
+  "planner_training_code": "train_residual_planner.py",
+  "evaluation_script": "run_track_bonus.py",
+  "final_eval_dir": "artifacts/track_eval_submission",
+  "model_architecture": {
+    "low_level": "Brax PPO Go2 velocity-tracking policy, normal actor observation, no privileged actor observations",
+    "high_level": "Residual MLP planner wrapping analytic centering/yaw baseline; MLP 5 -> 64 -> 64 -> 3 with tanh activations; output added to base command and clipped"
+  },
+  "best_pulled_result": {
+    "lap_completion": 1.0,
+    "finish_time_s": 212.2,
+    "fall": false,
+    "boundary_violation": false,
+    "composite_score": 0.9767077350616455
+  },
+  "report_file": "REPORT_OUTLINE.md"
+}

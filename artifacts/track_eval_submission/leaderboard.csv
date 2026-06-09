@@ -1,0 +1,2 @@
+rank,name,composite_score,lap_completion,valid_distance_m,finish_time,mean_progress_speed,fall,boundary_violation,rms_lateral_error,max_lateral_error
+1,MorldWodels,0.9766509437561036,1.0,200.0,212.24,0.9423294383716547,False,False,0.11040388691091349,0.2008056640625
