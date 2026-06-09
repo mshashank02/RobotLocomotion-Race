@@ -53,6 +53,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--residual-yaw-scale", type=float, default=0.65)
     parser.add_argument("--target-finish-seconds", type=float, default=260.0)
     parser.add_argument("--target-progress-speed", type=float, default=0.72)
+    parser.add_argument("--vx-bias-sweep-count", type=int, default=5)
+    parser.add_argument("--vx-bias-sweep-max", type=float, default=0.18)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--force-cpu", action="store_true")
     return parser.parse_args()
@@ -84,6 +86,23 @@ def unflatten_weights(vector: np.ndarray, template: dict[str, np.ndarray]) -> di
 def save_weights(path: Path, weights: dict[str, np.ndarray]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(path, **{key: np.asarray(weights[key], dtype=np.float32) for key in WEIGHT_KEYS})
+
+
+def output_bias_slice(template: dict[str, np.ndarray]) -> slice:
+    cursor = 0
+    for key in WEIGHT_KEYS:
+        size = int(np.prod(template[key].shape))
+        if key == "b3":
+            return slice(cursor, cursor + size)
+        cursor += size
+    raise KeyError("b3")
+
+
+def add_output_bias(vector: np.ndarray, template: dict[str, np.ndarray], output_idx: int, delta: float) -> np.ndarray:
+    adjusted = np.asarray(vector, dtype=np.float32).copy()
+    bias_slice = output_bias_slice(template)
+    adjusted[bias_slice.start + int(output_idx)] += float(delta)
+    return adjusted
 
 
 def command_stats(commands: np.ndarray) -> dict[str, Any]:
@@ -122,7 +141,8 @@ def rollout_reward(
     if finish_time is None:
         remaining_distance = max(0.0, float(track_length_m) - forward_progress)
         finish_bonus = 0.0
-        unfinished_penalty = 80.0 + 1.25 * remaining_distance
+        near_finish_penalty = 180.0 if forward_progress >= 0.9 * float(track_length_m) else 0.0
+        unfinished_penalty = 100.0 + near_finish_penalty + 2.0 * remaining_distance
     else:
         finish_bonus = 240.0 + 1.5 * max(0.0, float(target_finish_seconds) - float(finish_time))
         unfinished_penalty = 0.0
@@ -144,6 +164,7 @@ def rollout_reward(
         "forward_progress": forward_progress,
         "finish_bonus": finish_bonus,
         "unfinished_penalty": unfinished_penalty,
+        "near_finish_penalty": near_finish_penalty if finish_time is None else 0.0,
         "speed_bonus": speed_bonus,
         "speed_penalty": speed_penalty,
         "boundary_violation_penalty": boundary_penalty,
@@ -317,6 +338,10 @@ def main() -> None:
             noise = rng.normal(0.0, 1.0, size=(int(args.population), mean.size)).astype(np.float32)
             noise[0] = 0.0
             vectors = mean[None, :] + noise * sigma[None, :]
+            sweep_count = min(max(0, int(args.vx_bias_sweep_count)), max(0, int(args.population) - 1))
+            if sweep_count:
+                for sweep_idx, vx_bias in enumerate(np.linspace(0.0, float(args.vx_bias_sweep_max), sweep_count + 1)[1:]):
+                    vectors[sweep_idx + 1] = add_output_bias(mean, template, output_idx=0, delta=float(vx_bias))
             for candidate_idx, vector in enumerate(vectors):
                 evaluation = evaluate_candidate(
                     vector=vector,
@@ -370,6 +395,8 @@ def main() -> None:
                 "sigma_mean": float(np.mean(sigma)),
                 "target_finish_seconds": float(args.target_finish_seconds),
                 "target_progress_speed": float(args.target_progress_speed),
+                "vx_bias_sweep_count": int(args.vx_bias_sweep_count),
+                "vx_bias_sweep_max": float(args.vx_bias_sweep_max),
                 "best_planner_config": str(output_dir / "planner_config.json"),
                 "best_weights": str(output_dir / "residual_weights.npz"),
             }
