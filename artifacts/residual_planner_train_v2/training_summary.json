@@ -1,0 +1,11 @@
+{
+  "iteration": 23,
+  "best_reward": 526.1507003597827,
+  "iteration_best_reward": 526.1507003597827,
+  "mean_reward": 522.118588000156,
+  "sigma_mean": 0.0051565635949373245,
+  "target_finish_seconds": 260.0,
+  "target_progress_speed": 0.72,
+  "best_planner_config": "/home/shashank/RobotLocomotion-Race/artifacts/residual_planner_train_v2/planner_config.json",
+  "best_weights": "/home/shashank/RobotLocomotion-Race/artifacts/residual_planner_train_v2/residual_weights.npz"
+}

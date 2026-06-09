@@ -1,0 +1,42 @@
+{
+  "challenge": "track_bonus",
+  "entry_name": "change_me",
+  "checkpoint_dir": "/home/shashank/RobotLocomotion-Race/artifacts/experiments/stage2_adaptive_curriculum_reward_v5/best_checkpoint",
+  "planner_config": "/home/shashank/RobotLocomotion-Race/configs/starter_planner.json",
+  "official_track": {
+    "track_length_m": 200.0,
+    "turn_radius_m": 18.25,
+    "half_width_m": 2.0
+  },
+  "metrics": {
+    "lap_completion": 0.008741970062255858,
+    "valid_distance_m": 1.7483940124511717,
+    "finish_time": null,
+    "mean_progress_speed": 0.3496788024902343,
+    "alive_time": 5.0,
+    "fall": false,
+    "fall_step": null,
+    "boundary_violation": false,
+    "boundary_violation_step": null,
+    "rms_lateral_error": 0.013486425238267877,
+    "max_lateral_error": 0.034412384033203125,
+    "min_boundary_margin_m": 1.9655876159667969,
+    "energy_proxy": 3.9353346824645996,
+    "foot_slip_proxy": 0.39047378301620483,
+    "total_time": 5.0,
+    "num_steps": 250
+  },
+  "scores": {
+    "completion_score": 0.008741970062255858,
+    "speed_score": 0.2662384033203124,
+    "line_keeping_score": 1.0,
+    "stability_score": 1.0,
+    "efficiency_score": 0.6,
+    "composite_score": 0.38718156719207764
+  },
+  "artifacts": {
+    "leaderboard_csv": "/home/shashank/RobotLocomotion-Race/artifacts/track_eval_smoke/leaderboard.csv",
+    "rollouts_npz": "/home/shashank/RobotLocomotion-Race/artifacts/track_eval_smoke/race_rollouts.npz",
+    "video_path": null
+  }
+}

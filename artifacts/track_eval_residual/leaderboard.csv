@@ -1,0 +1,2 @@
+rank,name,composite_score,lap_completion,valid_distance_m,finish_time,mean_progress_speed,fall,boundary_violation,rms_lateral_error,max_lateral_error
+1,residual_planner,0.7911737538378526,0.7983298733700308,159.66597467400615,,0.5322199155800205,False,False,0.03722507889157466,0.064117431640625

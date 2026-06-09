@@ -1,0 +1,75 @@
+{
+  "reward": 526.1507003597827,
+  "composite_score": 0.9767077350616455,
+  "episodes": [
+    {
+      "start_s_m": 0.0,
+      "reward": 526.1507003597827,
+      "reward_terms": {
+        "forward_progress": 200.0,
+        "finish_bonus": 311.7,
+        "unfinished_penalty": 0.0,
+        "speed_bonus": 15.575494816211117,
+        "speed_penalty": 0.0,
+        "boundary_violation_penalty": 0.0,
+        "fall_penalty": 0.0,
+        "lateral_error_penalty": 1.12432095570417,
+        "command_smoothness_penalty": 0.0004735007241833955
+      },
+      "metrics": {
+        "lap_completion": 1.0,
+        "valid_distance_m": 200.0,
+        "finish_time": 212.20000000000002,
+        "mean_progress_speed": 0.9425070688030159,
+        "alive_time": 212.20000000000002,
+        "fall": false,
+        "fall_step": null,
+        "boundary_violation": false,
+        "boundary_violation_step": null,
+        "rms_lateral_error": 0.11444472796892416,
+        "max_lateral_error": 0.2188262939453125,
+        "min_boundary_margin_m": 1.7811737060546875,
+        "energy_proxy": 12.060460090637207,
+        "foot_slip_proxy": 0.9927545785903931,
+        "total_time": 300.0,
+        "num_steps": 15000
+      },
+      "scores": {
+        "completion_score": 1.0,
+        "speed_score": 1.0,
+        "line_keeping_score": 1.0,
+        "stability_score": 1.0,
+        "efficiency_score": 0.5341547012329101,
+        "composite_score": 0.9767077350616455
+      },
+      "command_stats": {
+        "mean": [
+          0.9394364953041077,
+          -0.012093056924641132,
+          0.030758103355765343
+        ],
+        "std": [
+          0.05476256459951401,
+          0.00654299883171916,
+          0.02528006210923195
+        ],
+        "min": [
+          0.0,
+          -0.023753555491566658,
+          -0.0063716210424900055
+        ],
+        "max": [
+          0.9531970024108887,
+          0.0008660207968205214,
+          0.0655042976140976
+        ],
+        "mean_abs_delta": [
+          0.0001109984950744547,
+          4.431038541952148e-05,
+          0.0003228482382837683
+        ],
+        "smoothness_cost": 5.918759052292444e-05
+      }
+    }
+  ]
+}

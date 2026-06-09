@@ -1,0 +1,72 @@
+{
+  "reward": 159.38707312244816,
+  "composite_score": 0.7913346034181906,
+  "episodes": [
+    {
+      "start_s_m": 0.0,
+      "reward": 159.38707312244816,
+      "reward_terms": {
+        "forward_progress": 159.71721878809615,
+        "finish_bonus": 0.0,
+        "boundary_violation_penalty": 0.0,
+        "fall_penalty": 0.0,
+        "lateral_error_penalty": 0.32998988812305186,
+        "command_smoothness_penalty": 0.00015577752492390573
+      },
+      "metrics": {
+        "lap_completion": 0.7985860939404807,
+        "valid_distance_m": 159.71721878809615,
+        "finish_time": null,
+        "mean_progress_speed": 0.5323907292936538,
+        "alive_time": 300.0,
+        "fall": false,
+        "fall_step": null,
+        "boundary_violation": false,
+        "boundary_violation_step": null,
+        "rms_lateral_error": 0.0351758761292326,
+        "max_lateral_error": 0.059467315673828125,
+        "min_boundary_margin_m": 1.9405326843261719,
+        "energy_proxy": 5.8965373039245605,
+        "foot_slip_proxy": 0.5796787738800049,
+        "total_time": 300.0,
+        "num_steps": 15000
+      },
+      "scores": {
+        "completion_score": 0.7985860939404807,
+        "speed_score": 0.5098543057248718,
+        "line_keeping_score": 1.0,
+        "stability_score": 1.0,
+        "efficiency_score": 0.6,
+        "composite_score": 0.7913346034181906
+      },
+      "command_stats": {
+        "mean": [
+          0.5349041819572449,
+          -0.00813677255064249,
+          0.001687099109403789
+        ],
+        "std": [
+          0.03093520924448967,
+          0.0018126495415344834,
+          0.015758397057652473
+        ],
+        "min": [
+          0.0,
+          -0.010638347826898098,
+          -0.0182600449770689
+        ],
+        "max": [
+          0.5375358462333679,
+          0.0,
+          0.02791721001267433
+        ],
+        "mean_abs_delta": [
+          6.540064350701869e-05,
+          3.936891516787e-05,
+          0.00025695760268718004
+        ],
+        "smoothness_cost": 1.9472190615488216e-05
+      }
+    }
+  ]
+}
